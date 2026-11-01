@@ -4,3 +4,5 @@
 #aeroFields select,#analysisMode{display:block;width:100%;margin-top:4px}input:disabled{background:#eef2f5;color:#7b8995}
 
 #radialPanel select{display:block;width:100%;margin-top:4px}#radialPanel input[type=checkbox]{width:auto}#radialPanel canvas{margin-bottom:12px}#radialState{font-size:12px;color:#88651b}.radialTable{max-height:420px;overflow:auto}#radialPanel .metrics{margin-top:15px}
+
+#edgeEnabled{width:auto}#edgeFields select{display:block;width:100%}#edgeConnections{font-variant-numeric:tabular-nums}

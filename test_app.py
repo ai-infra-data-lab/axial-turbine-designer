@@ -87,7 +87,7 @@ class ShapeTests(unittest.TestCase):
         self.assertEqual(g['layers'][-1]['radius'],.24)
         obj=obj_text(self.d)
         self.assertEqual(sum(l.startswith('v ') for l in obj.splitlines()),17*162)
-        self.assertEqual(sum(l.startswith('f ') for l in obj.splitlines()),16*162)
+        self.assertEqual(sum(l.startswith('f ') for l in obj.splitlines()),16*161)
 
     def test_overcrowded_blades_warn(self):
         self.d['stages'][0]['rows'][1]['blade_count']=500
@@ -201,6 +201,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response['design']['stages'][0]['rows'][1]['sections'][0]['outlet_angle'],candidate['candidates'][0]['outlet_metal_candidate'])
         payload['design']['radial']['design_incidence']=1
         with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/radial-apply',payload)
+        self.assertEqual(e.exception.code,400)
+
+    def test_edge_settings_api_evaluation_restore_and_invalid_rejection(self):
+        import edges
+        d=new_design();section=d['stages'][0]['rows'][1]['sections'][0]
+        payload={'design':d,'section_id':section['id'],'stage_index':0,'row_index':1,
+                 'settings':{**edges.defaults(section),'enabled':True,'te_type':'flat'}}
+        response=self.post('/api/edges',payload)
+        self.assertEqual(len(response['metrics']['edge_report']['connections']),6)
+        self.assertAlmostEqual(response['metrics']['trailing_gap_m'],section['trailing'])
+        self.assertNotIn('edges',section)
+        payload['design']['stages'][0]['rows'][1]['sections'][0]=response['section']
+        restored=self.post('/api/restore',payload)['section'];restored.pop('profile_history')
+        self.assertEqual(restored,section)
+        payload['settings']['le_radius']=999
+        with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/edges',payload)
         self.assertEqual(e.exception.code,400)
 
 if __name__=='__main__':unittest.main(verbosity=2)

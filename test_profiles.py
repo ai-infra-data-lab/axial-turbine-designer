@@ -149,7 +149,7 @@ class ProfileEditingTests(unittest.TestCase):
                 db.execute('UPDATE designs SET document=?,result=? WHERE id=?',
                            (json.dumps(legacy),json.dumps(result),legacy['id']))
             loaded=store.get(legacy['id'])
-            self.assertEqual(loaded['design']['schema_version'],4)
+            self.assertEqual(loaded['design']['schema_version'],5)
             self.assertIsNone(loaded['result'])
             with store.connect() as db:
                 original=json.loads(db.execute('SELECT document FROM designs').fetchone()[0])

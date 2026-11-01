@@ -6,6 +6,7 @@ import copy
 import math
 import uuid
 from datetime import datetime, timezone
+import edges
 
 FIELDS = ('span', 'chord', 'inlet_angle', 'outlet_angle', 'stagger', 'thickness', 'peak', 'trailing', 'sweep', 'lean')
 
@@ -15,6 +16,7 @@ def finite(value, lo, hi):
 
 
 def validate_profile(section):
+    edges.validate(section)
     limits={'span':(0,1),'chord':(.001,2),'inlet_angle':(-75,75),'outlet_angle':(-75,75),
             'stagger':(-70,70),'thickness':(.00001,.5),'peak':(.1,.8),'trailing':(.00001,.1),
             'sweep':(-2,2),'lean':(-2,2)}
@@ -176,34 +178,64 @@ def fit_bspline(points, count=17):
     return [list(p) for p in zip(*coordinates)]
 
 
-def section_profile(s, n=81):
+def base_evaluator(s):
     p=s.get('profile',{})
     if p.get('mode') == 'direct':
-        return [[ [x+s['sweep'],y+s['lean']] for x,y in [bspline(p[key],i/(n-1)) for i in range(n)]] for key in ('side_a','side_b')]
+        def direct(side,u):
+            x,y=bspline(p['side_a' if side==0 else 'side_b'],u)
+            return [x+s['sweep'],y+s['lean']]
+        return direct
     if p.get('mode') == '_loft':
-        return copy.deepcopy(p['samples'])
-    sides=[[],[]]
+        def loft(side,u):
+            points=p['samples'][side];q=u*(len(points)-1);j=min(len(points)-2,int(q));w=q-j
+            return [points[j][k]*(1-w)+points[j+1][k]*w for k in (0,1)]
+        return loft
     integral=[0.]
     if p.get('mode') == 'distribution':
         slopes=[math.tan(math.radians(pchip(p['angles'],i/400))) for i in range(401)]
         for a,b in zip(slopes,slopes[1:]):
             integral.append(integral[-1]+(a+b)*s['chord']/800)
         thick_points=[[math.sqrt(x),t] for x,t in p['thicknesses']]
-    for i in range(n):
-        u=i/(n-1)
+    def point(side,u):
         if p.get('mode') == 'distribution':
-            q=u*400
-            j=min(399,int(q))
+            q=u*400;j=min(399,int(q))
             y=integral[j]*(1-(q-j))+integral[j+1]*(q-j)
             slope=math.tan(math.radians(pchip(p['angles'],u)))
             thickness=pchip(thick_points,math.sqrt(u))
         else:
-            y,slope=legacy_camber(s,u)
-            thickness=legacy_thickness(s,u)
-        norm=math.hypot(1,slope)
-        for sign,side in zip((1,-1),sides):
-            side.append([s['chord']*u-sign*thickness*slope/(2*norm)+s['sweep'],y+sign*thickness/(2*norm)+s['lean']])
-    return sides
+            y,slope=legacy_camber(s,u);thickness=legacy_thickness(s,u)
+        norm=math.hypot(1,slope);sign=1 if side==0 else -1
+        return [s['chord']*u-sign*thickness*slope/(2*norm)+s['sweep'],y+sign*thickness/(2*norm)+s['lean']]
+    return point
+
+
+def profile_evaluator(s):
+    base=base_evaluator(s)
+    return edges.build(s,base)[0] if s.get('edges',{}).get('enabled') else base
+
+
+def section_profile(s, n=81):
+    point=profile_evaluator(s)
+    nodes=[i/(n-1) for i in range(n)]
+    c=s.get('edges',{})
+    if c.get('enabled') and n>=12:
+        le,te=c['le_join'],c['te_join']
+        breaks=[0,le*.35,le,te,te+(1-te)*.65,1] if c['te_type']!='flat' else [0,le*.35,le,te,1]
+        weights=[.15,.15,.4,.15,.15] if c['te_type']!='flat' else [.15,.15,.4,.3]
+        counts=[max(1,int((n-1)*w)) for w in weights]
+        counts[2]+=n-1-sum(counts)
+        nodes=[0.]+[a+(b-a)*i/count for a,b,count in zip(breaks,breaks[1:],counts) for i in range(1,count+1)]
+    return [[point(side,u) for u in nodes] for side in (0,1)]
+
+
+def apply_edge_settings(section,settings):
+    out=copy.deepcopy(section);out['edges']=copy.deepcopy(settings);validate_profile(out)
+    before=section_profile(section,161);after=section_profile(out,161)
+    original={k:copy.deepcopy(v) for k,v in section.items() if k!='profile_history'}
+    entry={'id':str(uuid.uuid4()),'created_at':datetime.now(timezone.utc).isoformat(),
+           'source':original,'target_mode':'edge_settings','conversion_error':curve_error(before,after)}
+    out['profile_history']=(copy.deepcopy(section.get('profile_history',[]))+[entry])[-8:]
+    return out
 
 
 def interpolate_section(sections, span):
@@ -213,9 +245,14 @@ def interpolate_section(sections, span):
             if span==b['span']:return copy.deepcopy(b)
             w=(span-a['span'])/(b['span']-a['span'])
             s={k:a[k]*(1-w)+b[k]*w for k in FIELDS}
-            if a.get('profile') or b.get('profile'):
+            ea,eb=a.get('edges',{}),b.get('edges',{})
+            compatible=ea.get('enabled') and eb.get('enabled') and all(ea[k]==eb[k] for k in ('le_type','te_type','continuity'))
+            if compatible:
+                s['edges']={k:(ea[k]*(1-w)+eb[k]*w if type(ea[k]) in (int,float) else ea[k]) for k in ea}
+            if a.get('profile') or b.get('profile') or (bool(ea.get('enabled')) or bool(eb.get('enabled'))) and not compatible:
                 aa=[resample(side,81) for side in section_profile(a,161)]
                 bb=[resample(side,81) for side in section_profile(b,161)]
+                s.pop('edges',None)
                 s['profile']={'mode':'_loft','samples':[[[x*(1-w)+y*w for x,y in zip(p,q)] for p,q in zip(sa,sb)] for sa,sb in zip(aa,bb)]}
             return s
     raise ValueError('スパンが範囲外です。')
@@ -270,6 +307,7 @@ def convert_section(s, target, count=17):
             for sign,side in ((1,aa),(-1,bb)):
                 h=math.dist(side[0],side[1])
                 side[1]=[nose[j]+sign*h*v[j]/length for j in (0,1)]
+        out.pop('edges',None)
         out['profile']={'mode':'direct','side_a':aa,'side_b':bb,'lock_nose_tangent':True}
     original={k:copy.deepcopy(v) for k,v in s.items() if k!='profile_history'}
     error=curve_error(source,section_profile(out,161))
@@ -321,8 +359,14 @@ def section_metrics(s, sides=None):
         bv=[p['side_b'][1][i]-p['side_b'][0][i] for i in (0,1)]
         den=math.hypot(*av)*math.hypot(*bv)
         tangent_error=math.degrees(math.atan2(abs(av[0]*bv[1]-av[1]*bv[0]),-sum(x*y for x,y in zip(av,bv)))) if den>1e-20 else None
-    return {'span':s['span'],'leading_gap_m':math.dist(a[0],b[0]),'trailing_gap_m':math.dist(a[-1],b[-1]),
-            'axial_chord_m':axial_chord,'nose_tangent_method':'B-spline endpoint derivative' if p.get('mode')=='direct' else 'sampled segments',
+    edge_report=None
+    if s.get('edges',{}).get('enabled'):
+        tangent_error=0.
+        fn,joins=edges.build(s,base_evaluator(s))
+        edge_report={'settings':copy.deepcopy(s['edges']),'connections':edges.diagnostics(fn,joins),
+                     'le_nose_radius_m':s['edges']['le_radius'],'te_interface_thickness_m':s['edges']['te_thickness']}
+    return {'edge_report':edge_report,'span':s['span'],'leading_gap_m':math.dist(a[0],b[0]),'trailing_gap_m':math.dist(a[-1],b[-1]),
+            'axial_chord_m':axial_chord,'nose_tangent_method':'analytic edge' if edge_report else 'B-spline endpoint derivative' if p.get('mode')=='direct' else 'sampled segments',
             'nose_tangent_error_deg':tangent_error,'minimum_surface_distance_m':minimum,
             'stagger_deg':math.degrees(math.atan2(te[1]-le[1],te[0]-le[0])),
             'max_abs_curvature_per_m':max(abs(x) for x in ka+kb),'curvature_a':ka,'curvature_b':kb,

@@ -1,4 +1,4 @@
-# 軸流タービン設計 径方向解析版 0.4.1
+# 軸流タービン設計 前後縁設計版 0.5.0
 
 ガスタービン用軸流タービンの概念設計を行う独立したローカルWebアプリです。Python標準ライブラリのみで動作し、外部CDNや外部サービスは使いません。既存アプリのコード・データベースは変更しません。
 
@@ -22,7 +22,7 @@ Windowsで `start.bat` をダブルクリックしてください。既定のブ
 
 保存先は `data/designs.sqlite3`。上書き時はrevisionを確認し、競合時は書込みを拒否します。保存履歴はDB内に保持しますが、履歴復元画面は初期版にはありません。バックアップは「JSON出力」で行えます。JSON読込は結果を未実行に戻します。同じIDが保存済みの場合は「開く」を使ってください。
 
-径方向解析版の設計schema・JSON交換bundleはversion 4です。旧版version 1/2/3は読込時にメモリー上で移行し、保存操作まではDBの原本を変更しません。入力ハッシュが変わる旧計算結果は未実行に戻します。新版の交換JSONは、新しい計算方式を解釈できない0.1/0.2/0.3版では読み込めません。
+前後縁設計版の設計schema・JSON交換bundleはversion 5です。旧版version 1/2/3/4は読込時にメモリー上で移行し、保存操作まではDBの原本を変更しません。入力ハッシュが変わる旧計算結果は未実行に戻します。新版の交換JSONは、新しい計算方式を解釈できない0.1～0.4版では読み込めません。
 
 ## 翼面とスパン方向
 
@@ -39,6 +39,10 @@ Windowsで `start.bat` をダブルクリックしてください。既定のブ
 - 面A/Bの識別を固定し、翼列ごとにどちらを想定圧力面とするか指定できます。名称は流れ解析による圧力分布の保証ではありません。
 - 自己交差・隣接翼交差に加え、曲率、前縁接線差、前後縁の隙間、両面間距離と翼間最小隙間の近似を表示します。厳密な最小肉厚・有効スロート・断面間の3D面交差・製造可否は保証しません。
 - OBJはm単位の単翼表面メッシュです。ハブ・チップ端面を閉じておらず、製造用ソリッドではありません。
+
+## LE・TEの専用形状
+
+各断面の「LE（前縁）・TE（後縁）の専用形状」で有効にし、設定後に「LE/TE設定を反映・評価」を押します。LEの円／楕円・先端半径・楕円比・傾き・接続位置、TEの厚み・くさび角・円弧／楕円／平坦形状、接線連続G1／曲率連続G2に対応します。拡大図と接続誤差を表示し、変更前の定義を履歴に保持します。基本・分布方式が対象で、直接編集への変換は近似です。詳しい定義と制約は `EDGE_DESIGN.md` を参照してください。
 
 ## 非冷却1Dモデル
 
@@ -91,7 +95,7 @@ A = mass_flow/(rho Cax), height = A/(2πrm)
 
 ## 検証
 
-`python -m unittest -v test_app.py test_profiles.py test_aerodynamics.py test_radial.py` で数値・形状・保存・HTTP APIを検証します。開発用DOMテストはNode.js 20以上で `npm install --ignore-scripts`、`npm test` を実行します。ロックファイルどおりの開発環境には `pnpm install --frozen-lockfile --ignore-scripts`、`pnpm test` を使います。Pythonを別途指定する場合は環境変数 `PYTHON` を設定してください。`npm run check` で画面スクリプトの構文を確認できます。アプリ本体にはNodeは不要です。検証結果と未確認事項は `VERIFICATION.md` を参照してください。
+`python -m unittest -v test_app.py test_profiles.py test_aerodynamics.py test_radial.py test_edges.py` で数値・形状・保存・HTTP APIを検証します。開発用DOMテストはNode.js 20以上で `npm install --ignore-scripts`、`npm test` を実行します。ロックファイルどおりの開発環境には `pnpm install --frozen-lockfile --ignore-scripts`、`pnpm test` を使います。Pythonを別途指定する場合は環境変数 `PYTHON` を設定してください。`npm run check` で画面スクリプトの構文を確認できます。アプリ本体にはNodeは不要です。検証結果と未確認事項は `VERIFICATION.md` を参照してください。
 
 ## 設計参考資料
 

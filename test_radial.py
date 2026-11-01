@@ -204,7 +204,7 @@ class RadialIntegrationTests(unittest.TestCase):
         old=copy.deepcopy(self.d);old['schema_version']=3;old.pop('radial')
         migrated=validate(old)
         self.assertFalse(migrated['radial']['enabled'])
-        self.assertEqual(migrated['schema_version'],4)
+        self.assertEqual(migrated['schema_version'],5)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

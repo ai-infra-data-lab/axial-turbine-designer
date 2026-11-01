@@ -219,4 +219,36 @@ class ApiTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/edges',payload)
         self.assertEqual(e.exception.code,400)
 
+    def test_meridional_api_layout_mapping_and_saved_comparison(self):
+        d=new_design();settings=copy.deepcopy(d['meridional']);settings['enabled']=True
+        settings['casing'][-1][1]=.27
+        response=self.post('/api/meridional',{'design':d,'settings':settings})
+        self.assertEqual(len(response['report']['layout']),4)
+        updated=response['design'];self.assertTrue(updated['meridional']['enabled'])
+        preview=self.post('/api/preview',{'design':updated})
+        self.assertIn('world_sides',preview['layers'][0])
+        self.assertEqual(preview['meridional_hash'],response['report']['geometry_hash'])
+        saved=self.post('/api/save',{'design':updated,'revision':0,'include_result':True})
+        self.assertEqual(len(saved['result']['meridional']['comparisons']),4)
+        self.assertEqual(saved['result']['meridional']['input_hash'],digest(updated))
+        self.assertFalse(d['meridional']['enabled'])
+        settings['casing'][-1][1]=.1
+        with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/meridional',{'design':d,'settings':settings})
+        self.assertEqual(e.exception.code,400)
+
+    def test_meridional_api_te_target_and_reset(self):
+        d=new_design();report=self.post('/api/meridional-report',{'design':d})
+        target=report['layout'][1]['reference_te']+.002
+        response=self.post('/api/meridional-te',{'design':d,'stage_index':0,'row_index':1,'target_te':target})
+        self.assertAlmostEqual(response['report']['layout'][1]['reference_te'],target)
+        updated=response['design'];updated['meridional']['enabled']=True
+        # Repair and reset must remain available even when an applied layout is out of range.
+        valid_settings=copy.deepcopy(updated['meridional'])
+        last=updated['stages'][-1]['rows'][-1]['id']
+        updated['meridional']['placements'][last]=10
+        repaired=self.post('/api/meridional',{'design':updated,'settings':valid_settings})
+        self.assertEqual(repaired['design']['meridional'],valid_settings)
+        response=self.post('/api/meridional-reset',{'design':updated})
+        self.assertFalse(response['design']['meridional']['enabled'])
+
 if __name__=='__main__':unittest.main(verbosity=2)

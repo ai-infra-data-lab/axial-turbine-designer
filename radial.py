@@ -178,6 +178,9 @@ def analyze(d,base):
         report['warnings'].append('基準の1D計算に適用条件外の状態があります。径方向への展開でその精度が改善されたとは扱いません。')
         report['applicability']='outside'
     try:
+        from meridional import reference_cylinder
+        if d.get('meridional',{}).get('enabled') and not reference_cylinder(d):
+            raise ValueError('可変子午面と半径方向解析の連成は未対応です。基準の円筒流路を使うか、子午面を無効にしてください。')
         for source in station_sources(d,base):
             try:station=station_solution(source,d['conditions'],d['geometry'],settings)
             except ValueError as e:raise ValueError(f'{source["label"]}: {e}') from None

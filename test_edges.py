@@ -124,7 +124,7 @@ class EdgeTests(unittest.TestCase):
                 self.assertGreaterEqual(len(points),3)
                 self.assertTrue(all(math.dist(a,b)>1e-12 for a,b in zip(points,points[1:]+points[:1])))
         old=new_design();old['schema_version']=4
-        self.assertEqual(validate(old)['schema_version'],5)
+        self.assertEqual(validate(old)['schema_version'],6)
         self.assertNotEqual(digest(old),digest(validate(old)))
 
 

@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from profiles import (section_profile, interpolate_section, validate_profile, section_metrics,
                       point_distance, curve_error, convert_section, restore_section, resample)
 from aerodynamics import default_row, validate_settings, solve_rows
+import meridional
 from radial import defaults as radial_defaults, validate_settings as validate_radial_settings, analyze as analyze_radial
 
-VERSION = '0.5.0'
+VERSION = '0.6.0'
 CONVENTIONS = {'units': 'SI (m, s, kg, K, Pa, W)', 'axes': 'x=axial downstream, y=tangential positive rotation, z=radial',
                'angle': 'degrees from +x toward +y; rotor relative / stator absolute',
                'span': 'geometric radial fraction, hub=0 tip=1', 'rotation': '+y',
@@ -24,6 +25,11 @@ def now():
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode()).hexdigest()
+
+
+def meridional_geometry_hash(d):
+    return digest({'module_version':VERSION,'meridional':d['meridional'],'reference_geometry':d['geometry'],
+                   'rows':[{'id':row['id'],'sections':row['sections'],'blade_count':row['blade_count']} for _,_,row in meridional.rows(d)]})
 
 
 def apply_radial_angles(raw, stage_index, row_index, expected_hash):
@@ -69,13 +75,15 @@ def new_design():
                                        'thickness': .005*(1-.2*s), 'peak': .35, 'trailing': .0006,
                                        'sweep': .004*s, 'lean': .003*s} for s in (0, .25, .5, .75, 1)]})
         stages.append({'id': uid(), 'reaction': .5, 'weight': 1., 'rows': rows})
-    return {'schema_version': 5, 'id': uid(), 'name': '軸流タービン試設計（仮の入力例）', 'notes': '', 'link': None,
+    d = {'schema_version': 6, 'id': uid(), 'name': '軸流タービン試設計（仮の入力例）', 'notes': '', 'link': None,
             'radial':radial_defaults(),
             'analysis':{'mode':'specified_efficiency','viscosity':4.5e-5,'inlet_angle':0.},
             'conditions': {'mass_flow': 10., 'inlet_temperature': 1400., 'inlet_pressure': 1500000., 'rpm': 15000.,
                            'power': 2000000., 'cp': 1150., 'gamma': 1.33, 'stage_efficiency': .9,
                            'mean_radius': .20, 'axial_velocity': 150.},
             'geometry': {'hub_radius': .16, 'tip_radius': .24}, 'stages': stages}
+    d['meridional']=meridional.defaults(d)
+    return d
 
 def number(v, name, lo, hi):
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not lo <= v <= hi:
@@ -89,10 +97,10 @@ def identifier(v):
         raise ValueError('IDはUUIDで指定してください。') from None
 
 def validate(raw):
-    if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw.get('schema_version') not in (1,2,3,4,5):
+    if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw.get('schema_version') not in (1,2,3,4,5,6):
         raise ValueError('対応していないデータ形式です。')
     d = copy.deepcopy(raw)
-    d['schema_version']=5
+    d['schema_version']=6
     d['radial']={**radial_defaults(),**d.get('radial',{})}
     d['analysis']={**{'mode':'specified_efficiency','viscosity':4.5e-5,'inlet_angle':0.},**d.get('analysis',{})}
     d['id'] = identifier(d['id'])
@@ -162,6 +170,8 @@ def validate(raw):
         if project['id'] != link['project_id'] or not any(c['id'] == link['component_id'] and c['kind'] == 'turbine' for c in project['components']):
             raise ValueError('紐付け先のタービン部品が一致しません。')
     # Reject non-JSON values anywhere, including notes / source data.
+    if 'meridional' not in d:d['meridional']=meridional.defaults(d)
+    meridional.validate(d)
     validate_settings(d)
     validate_radial_settings(d['radial'])
     digest(d)
@@ -188,13 +198,20 @@ def geometry(d, stage_index=0, row_index=1):
     row = d['stages'][stage_index]['rows'][row_index]
     hub, tip = d['geometry']['hub_radius'], d['geometry']['tip_radius']
     layers, warnings = [], []
+    mapped=d['meridional']['enabled']
+    walls=meridional.curves(d) if mapped else None
+    origin=d['meridional']['placements'][row['id']] if mapped else 0.
     spans=sorted(set([j/16 for j in range(17)]+[s['span'] for s in row['sections']]))
     align=any(s.get('profile') or s.get('edges',{}).get('enabled') for s in row['sections'])
     for span in spans:
         s = interpolate_section(row['sections'], span)
         sides = [resample(side,81) for side in section_profile(s,161)] if align else section_profile(s)
         radius = hub+(tip-hub)*span
-        layers.append({'span': span, 'radius': radius, 'sides': sides})
+        layer={'span':span,'radius':radius,'sides':sides}
+        if mapped:
+            layer['world_sides']=meridional.map_sides(d,row,span,sides,walls)
+            rh,rt=(curve.jet(origin)[0] for curve in walls);layer['radius']=rh+span*(rt-rh)
+        layers.append(layer)
         poly = sides[0]+list(reversed(sides[1]))
         # Proper intersection check; excludes the shared leading edge.
         if any(crosses(poly[a], poly[(a+1)%len(poly)], poly[b], poly[(b+1)%len(poly)])
@@ -203,14 +220,18 @@ def geometry(d, stage_index=0, row_index=1):
         pitch = 2*math.pi*radius/row['blade_count']
         edges = list(zip(poly, poly[1:]+poly[:1]))
         # Sampled polygon against one adjacent periodic copy.
-        shifted = [[x,y+pitch] for x,y in poly]
+        def local_pitch(x):
+            if not mapped:return pitch
+            rh,rt=(curve.jet(origin+x)[0] for curve in walls)
+            return 2*math.pi*(rh+span*(rt-rh))/row['blade_count']
+        shifted = [[x,y+local_pitch(x)] for x,y in poly]
         other = list(zip(shifted, shifted[1:]+shifted[:1]))
         if any(crosses(a,b,c,e) for a,b in edges for c,e in other):
             warnings.append(f'{span*100:.0f}%: 隣接翼との交差を検出しました。')
             gap=0.
         else:
             short=sides[0][::2]+list(reversed(sides[1][::2]))
-            adj=[[x,y+pitch] for x,y in short]
+            adj=[[x,y+local_pitch(x)] for x,y in short]
             gap=min(min(point_distance(p,a,b) for p in short for a,b in zip(adj,adj[1:]+adj[:1])),
                     min(point_distance(p,a,b) for p in adj for a,b in zip(short,short[1:]+short[:1])))
         layers[-1]['minimum_passage_gap_m']=gap
@@ -224,7 +245,7 @@ def geometry(d, stage_index=0, row_index=1):
                 if connection['tangent_error_deg']>.1 or (report['edge_report']['settings']['continuity']=='G2' and connection['curvature_relative']>.02):
                     warnings.append(f"{report['span']*100:.0f}%: LE/TE接続 {connection['join']} 面{connection['side']} の連続性残差を確認してください。")
     return {'layers': layers, 'warnings': warnings, 'blade_count': row['blade_count'], 'conventions': CONVENTIONS,
-            'section_reports':reports,'pressure_side':row.get('pressure_side','unspecified'),
+            'input_hash':digest(d),'meridional_hash':meridional_geometry_hash(d),'section_reports':reports,'pressure_side':row.get('pressure_side','unspecified'),
             'notice': '圧力面・負圧面は設計上の想定です。翼間隙間は折線近似の幾何指標で、有効スロートではありません。CAD面の品質保証ではありません。'}
 
 def solve_meanline(raw):
@@ -240,7 +261,7 @@ def solve_meanline(raw):
                     report=next(r for r in results['blade_rows'] if r['row_id']==row['id'])
                     report['applicability']='outside'
                     report['warnings'].append('転記後の参照形状が変更されています。')
-        return {'module_id':'axial_turbine_designer','module_version':VERSION,'schema_version':5,
+        return {'module_id':'axial_turbine_designer','module_version':VERSION,'schema_version':6,
                 'run_id':uid(),'started_at':now(),'completed_at':now(),'status':'computed',
                 'validation':'not_experimentally_validated','analysis_mode':'row_models',
                 'input_snapshot':d,'input_hash':digest(d),'link':d.get('link'),'conventions':CONVENTIONS,**results}
@@ -292,7 +313,7 @@ def solve_meanline(raw):
                        't0_in': tin, 'p0_in': pin, 't0_out': t0, 'p0_out': p0, 'inlet': a, 'outlet': b,
                        'euler_residual': u*(ct1-ct2)-dh, 'energy_residual': cp*(tin-t0)-dh})
     efficiency = total_work/(cp*c['inlet_temperature']*(1-(p0/c['inlet_pressure'])**((g-1)/g)))
-    return {'module_id': 'axial_turbine_designer', 'module_version': VERSION, 'schema_version': 5, 'analysis_mode':'specified_efficiency',
+    return {'module_id': 'axial_turbine_designer', 'module_version': VERSION, 'schema_version': 6, 'analysis_mode':'specified_efficiency',
             'run_id': uid(), 'started_at': now(), 'completed_at': now(), 'status': 'computed', 'validation': 'not_experimentally_validated',
             'input_snapshot': d, 'input_hash': digest(d), 'link': d.get('link'), 'conventions': CONVENTIONS,
             'summary': {'power': mass*sum(s['work'] for s in result), 'torque': c['power']/(c['rpm']*2*math.pi/60),
@@ -303,6 +324,11 @@ def solve_meanline(raw):
 def solve(raw):
     result=solve_meanline(raw)
     d=result['input_snapshot']
+    if d['meridional']['enabled']:
+        result['meridional']={**meridional.report(d,result),'input_hash':result['input_hash'],'geometry_hash':meridional_geometry_hash(d)}
+        result['analysis_scope']='reference_meanline_only'
+        result['warnings']=[w.replace('指定形状の環状面積','基準円筒の環状面積').replace('指定形状の面積','基準円筒の面積') for w in result['warnings']]
+        result['warnings']+=result['meridional']['warnings']
     if d['radial']['enabled']:
         result['radial']=analyze_radial(d,result)
         if result['radial']['status']=='failed':
@@ -312,11 +338,29 @@ def solve(raw):
 
 def aero_geometry_hash(d,row):
     return digest({'sections':row['sections'],'blade_count':row['blade_count'],'geometry':d['geometry'],
-                   'mean_radius':d['conditions']['mean_radius']})
+                   'mean_radius':d['conditions']['mean_radius'],'meridional':d['meridional']})
+
+
+def set_row_te(raw,stage_index,row_index,target):
+    d=validate(raw);number(target,'参照TE位置',-20,20)
+    row=d['stages'][stage_index]['rows'][row_index]
+    if any(s.get('profile',{}).get('mode')=='direct' for s in row['sections']):
+        raise ValueError('直接編集の断面を含む翼列のコードは自動変更しません。断面エディターで編集してください。')
+    reference=interpolate_section(row['sections'],.5)
+    chord=target-d['meridional']['placements'][row['id']]-reference['sweep']
+    number(chord,'軸方向コード',.001,2)
+    for s in row['sections']:
+        source={k:copy.deepcopy(v) for k,v in s.items() if k!='profile_history'}
+        before=section_profile(s,161);s['chord']=chord;validate_profile(s)
+        entry={'id':uid(),'created_at':now(),'source':source,'target_mode':'meridional_chord',
+               'conversion_error':curve_error(before,section_profile(s,161))}
+        s['profile_history']=(s.get('profile_history',[])+[entry])[-8:]
+    return validate(d)
 
 
 def aero_from_shape(d,stage_index,row_index):
     row=d['stages'][stage_index]['rows'][row_index]
+    if d['meridional']['enabled'] and not meridional.reference_cylinder(d):raise ValueError('可変子午面では1Dへの形状転記が未連成です。基準半径の金属角・コードを手動指定してください。')
     hub,tip=d['geometry']['hub_radius'],d['geometry']['tip_radius']
     span=(d['conditions']['mean_radius']-hub)/(tip-hub)
     exact=next((s for s in row['sections'] if abs(s['span']-span)<1e-10),None)
@@ -339,9 +383,10 @@ def obj_text(d, stage_index=0, row_index=1):
     vertices=[]
     for layer in mesh['layers']:
         radius = layer['radius']
-        for x,y in layer['sides'][0]+list(reversed(layer['sides'][1])):
-            theta = y/radius
-            vertex=[x,radius*math.sin(theta),radius*math.cos(theta)]
+        local=layer['sides'][0]+list(reversed(layer['sides'][1]))
+        world=layer.get('world_sides')
+        points=world[0]+list(reversed(world[1])) if world else [[x,radius*math.sin(y/radius),radius*math.cos(y/radius)] for x,y in local]
+        for vertex in points:
             vertices.append(vertex)
             lines.append('v '+' '.join(f'{value:.10g}' for value in vertex))
     for j in range(len(mesh['layers'])-1):

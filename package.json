@@ -1,0 +1,17 @@
+{
+  "name": "axial-turbine-designer",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Development-only DOM tests for the standalone Python axial turbine designer",
+  "scripts": {
+    "test": "node test_ui.mjs",
+    "check": "node --check static/app.js && node --check static/editor.js && node --check static/aero.js"
+  },
+  "devDependencies": {
+    "happy-dom": "20.0.10"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

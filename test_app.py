@@ -181,4 +181,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(r['design'],d)
         self.assertIsNone(r['result'])
 
+    def test_radial_api_candidates_and_saved_result(self):
+        d=new_design();d['radial']['enabled']=True
+        result=self.post('/api/run',{'design':d})
+        self.assertEqual(result['radial']['status'],'computed')
+        candidates=self.post('/api/radial-candidates',{'design':d,'stage_index':0,'row_index':1})
+        self.assertEqual(len(candidates['candidates']),5)
+        self.assertEqual(candidates['input_hash'],result['input_hash'])
+        saved=self.post('/api/save',{'design':d,'revision':0,'include_result':True})
+        self.assertEqual(saved['result']['radial']['status'],'computed')
+
 if __name__=='__main__':unittest.main(verbosity=2)

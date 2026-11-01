@@ -8,8 +8,9 @@ from datetime import datetime, timezone
 from profiles import (section_profile, interpolate_section, validate_profile, section_metrics,
                       point_distance, curve_error, convert_section, restore_section, resample)
 from aerodynamics import default_row, validate_settings, solve_rows
+from radial import defaults as radial_defaults, validate_settings as validate_radial_settings, analyze as analyze_radial
 
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 CONVENTIONS = {'units': 'SI (m, s, kg, K, Pa, W)', 'axes': 'x=axial downstream, y=tangential positive rotation, z=radial',
                'angle': 'degrees from +x toward +y; rotor relative / stator absolute',
                'span': 'geometric radial fraction, hub=0 tip=1', 'rotation': '+y',
@@ -35,7 +36,8 @@ def new_design():
                                        'thickness': .005*(1-.2*s), 'peak': .35, 'trailing': .0006,
                                        'sweep': .004*s, 'lean': .003*s} for s in (0, .25, .5, .75, 1)]})
         stages.append({'id': uid(), 'reaction': .5, 'weight': 1., 'rows': rows})
-    return {'schema_version': 3, 'id': uid(), 'name': '軸流タービン試設計（仮の入力例）', 'notes': '', 'link': None,
+    return {'schema_version': 4, 'id': uid(), 'name': '軸流タービン試設計（仮の入力例）', 'notes': '', 'link': None,
+            'radial':radial_defaults(),
             'analysis':{'mode':'specified_efficiency','viscosity':4.5e-5,'inlet_angle':0.},
             'conditions': {'mass_flow': 10., 'inlet_temperature': 1400., 'inlet_pressure': 1500000., 'rpm': 15000.,
                            'power': 2000000., 'cp': 1150., 'gamma': 1.33, 'stage_efficiency': .9,
@@ -54,10 +56,11 @@ def identifier(v):
         raise ValueError('IDはUUIDで指定してください。') from None
 
 def validate(raw):
-    if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw.get('schema_version') not in (1,2,3):
+    if not isinstance(raw, dict) or type(raw.get('schema_version')) is not int or raw.get('schema_version') not in (1,2,3,4):
         raise ValueError('対応していないデータ形式です。')
     d = copy.deepcopy(raw)
-    d['schema_version']=3
+    d['schema_version']=4
+    d['radial']={**radial_defaults(),**d.get('radial',{})}
     d['analysis']={**{'mode':'specified_efficiency','viscosity':4.5e-5,'inlet_angle':0.},**d.get('analysis',{})}
     d['id'] = identifier(d['id'])
     if not isinstance(d['name'], str) or not 1 <= len(d['name'].strip()) <= 150:
@@ -127,6 +130,7 @@ def validate(raw):
             raise ValueError('紐付け先のタービン部品が一致しません。')
     # Reject non-JSON values anywhere, including notes / source data.
     validate_settings(d)
+    validate_radial_settings(d['radial'])
     digest(d)
     return d
 
@@ -184,7 +188,7 @@ def geometry(d, stage_index=0, row_index=1):
             'section_reports':reports,'pressure_side':row.get('pressure_side','unspecified'),
             'notice': '圧力面・負圧面は設計上の想定です。翼間隙間は折線近似の幾何指標で、有効スロートではありません。CAD面の品質保証ではありません。'}
 
-def solve(raw):
+def solve_meanline(raw):
     d = validate(raw)
     if d['analysis']['mode']=='row_models':
         results=solve_rows(d)
@@ -197,7 +201,7 @@ def solve(raw):
                     report=next(r for r in results['blade_rows'] if r['row_id']==row['id'])
                     report['applicability']='outside'
                     report['warnings'].append('転記後の参照形状が変更されています。')
-        return {'module_id':'axial_turbine_designer','module_version':VERSION,'schema_version':3,
+        return {'module_id':'axial_turbine_designer','module_version':VERSION,'schema_version':4,
                 'run_id':uid(),'started_at':now(),'completed_at':now(),'status':'computed',
                 'validation':'not_experimentally_validated','analysis_mode':'row_models',
                 'input_snapshot':d,'input_hash':digest(d),'link':d.get('link'),'conventions':CONVENTIONS,**results}
@@ -249,12 +253,22 @@ def solve(raw):
                        't0_in': tin, 'p0_in': pin, 't0_out': t0, 'p0_out': p0, 'inlet': a, 'outlet': b,
                        'euler_residual': u*(ct1-ct2)-dh, 'energy_residual': cp*(tin-t0)-dh})
     efficiency = total_work/(cp*c['inlet_temperature']*(1-(p0/c['inlet_pressure'])**((g-1)/g)))
-    return {'module_id': 'axial_turbine_designer', 'module_version': VERSION, 'schema_version': 3, 'analysis_mode':'specified_efficiency',
+    return {'module_id': 'axial_turbine_designer', 'module_version': VERSION, 'schema_version': 4, 'analysis_mode':'specified_efficiency',
             'run_id': uid(), 'started_at': now(), 'completed_at': now(), 'status': 'computed', 'validation': 'not_experimentally_validated',
             'input_snapshot': d, 'input_hash': digest(d), 'link': d.get('link'), 'conventions': CONVENTIONS,
             'summary': {'power': mass*sum(s['work'] for s in result), 'torque': c['power']/(c['rpm']*2*math.pi/60),
                         'pressure_ratio': c['inlet_pressure']/p0, 'efficiency_tt': efficiency, 'outlet_temperature': t0, 'outlet_pressure': p0},
             'stages': result, 'warnings': warnings}
+
+
+def solve(raw):
+    result=solve_meanline(raw)
+    d=result['input_snapshot']
+    if d['radial']['enabled']:
+        result['radial']=analyze_radial(d,result)
+        if result['radial']['status']=='failed':
+            result['status']='computed_1d_radial_failed'
+    return result
 
 
 def aero_geometry_hash(d,row):

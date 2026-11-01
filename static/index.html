@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>軸流タービン設計</title><link rel="stylesheet" href="/style.css"></head>
 <body>
-<header><div><div class="eyebrow">AXIAL TURBINE / PRELIMINARY DESIGN</div><h1>軸流タービン設計 <small>翼列モデル版 0.3</small></h1></div><div id="status" role="status">起動中</div></header>
+<header><div><div class="eyebrow">AXIAL TURBINE / PRELIMINARY DESIGN</div><h1>軸流タービン設計 <small>径方向解析版 0.4</small></h1></div><div id="status" role="status">起動中</div></header>
 <nav><button id="new">新規</button><select id="saved" aria-label="保存済み案件"><option value="">保存済み案件</option></select><button id="load">開く</button><button id="save" class="primary">保存</button><button id="export">JSON出力</button><label class="file">JSON読込<input id="import" type="file" accept=".json,application/json"></label><button id="run" class="primary">1D計算</button></nav>
 <div id="message" role="status" aria-live="polite"></div>
 <main>
@@ -28,6 +28,17 @@
 <section><h2>形状チェック</h2><div id="geometryWarnings">「形状を更新」で離散断面の自己交差と隣接翼交差を検査します。</div><div class="tablewrap"><table id="gapResults"></table></div><p class="hint">翼間の最小隙間は折線近似のスロート目安です。流れ方向を考慮した有効スロート、厳密な最小肉厚、3D面間距離ではありません。</p></section>
 <section><div class="titlebar"><h2>1D 計算結果</h2><span id="resultState">未実行</span></div><div id="summary" class="metrics"></div><div class="tablewrap"><table id="results"></table></div><div class="views"><div><h3>速度三角形（表示段の動翼）</h3><canvas id="triangles" width="650" height="300"></canvas></div><div><h3>必要流路の子午面 [m]</h3><canvas id="meridional" width="650" height="300"></canvas></div></div><div id="warnings"></div></section>
 <section><h2>翼列ごとの損失・偏差と適用状態</h2><div id="powerComparison"></div><div class="tablewrap"><table id="rowResults"></table></div><p class="hint">Y=(入口全圧−出口全圧)/(出口全圧−出口静圧)。動翼では相対全圧。δmetal=流出角−金属角。ゲージ角に対する偏差とは別の値です。</p></section>
-<footer>概念設計用。翼面圧力分布・半径方向平衡・チョーク流量・冷却・強度・寿命・CAD品質の評価は未実装です。入力例は実機データではありません。</footer>
+<section id="radialPanel"><div class="titlebar"><h2>半径方向の簡易平衡解析</h2><span id="radialState">未実行</span></div>
+<p class="hint">1Dの平均旋回・全温・全圧を基準に、各軸方向断面の径方向平衡を解きます。各断面でエントロピー一定・半径速度0を仮定。流線曲率を含む2D通り抜け流れ解析ではありません。</p>
+<div class="fields geometry"><label>半径方向解析を有効にする<input id="radialEnabled" type="checkbox"></label><label>旋回則 Cθ ∝ rⁿ<select id="radialLaw"><option value="-1">自由渦 n=-1（標準）</option><option value="0">一定旋回速度 n=0</option><option value="1">強制渦 n=1</option><option value="custom">指数を指定</option></select></label><label>旋回指数 n<input id="radialExponent" type="number" step="0.1" min="-1" max="1"></label><label>半径方向の計算点数<select id="radialPoints"><option>17</option><option selected>33</option><option>65</option><option>129</option></select></label><label>流量の条件<select id="radialFlow"><option value="match_mass">指定流量に合わせて軸流速度を解く</option><option value="meanline_anchor">1Dの平均軸流速度を固定して比較</option></select></label><label>候補用の指定入射角 [°]<input id="radialIncidence" type="number" step="any"></label><label>候補用の指定偏差（流れ−金属）[°]<input id="radialDeviation" type="number" step="any"></label></div>
+<div class="actions"><button id="runRadial" class="primary">半径方向を計算</button><button id="exportRadial">径方向結果をCSV出力</button><button id="radialCandidates">選択翼列の金属角候補を表示</button></div>
+<div id="radialError" role="status"></div><div id="radialSummary" class="metrics"></div>
+<div class="fields geometry"><label>表示する断面<select id="radialStation"></select></label><label>断面の分布グラフ<select id="radialMetric"><option value="alpha">絶対流れ角 α [°]</option><option value="beta">相対流れ角 β [°]</option><option value="axial_velocity">軸流速度 [m/s]</option><option value="swirl_velocity">旋回速度 [m/s]</option><option value="temperature">静温 [K]</option><option value="pressure">静圧 [Pa]</option><option value="total_temperature">全温 [K]</option><option value="mach">絶対Mach数</option><option value="relative_mach">相対Mach数</option></select></label><label>段の分布グラフ<select id="radialStageMetric"><option value="reaction">反動度 [−]</option><option value="work">段仕事 [J/kg]</option><option value="loading_coefficient">負荷係数 [−]</option><option value="streamtube_energy_residual">流管エネルギー整合誤差 [J/kg]</option></select></label></div>
+<div class="views"><canvas id="radialPlot" width="700" height="300" aria-label="スパン方向の流れ分布"></canvas><canvas id="radialStagePlot" width="700" height="300" aria-label="スパン方向の段負荷分布"></canvas></div>
+<canvas id="radialStreamtubes" width="1100" height="260" aria-label="累積流量から対応付けた流管位置"></canvas><p class="hint">流管図は累積流量による断面間の対応付けです。軸方向位置は模式配置で、実際の流線を解いた結果ではありません。非自由渦では流管に沿うエネルギー整合も確認してください。</p>
+<div class="tablewrap radialTable"><table id="radialResults"></table></div><div id="radialStageSummary" class="hint"></div><div id="radialWarnings"></div>
+<div class="tablewrap"><table id="radialCandidateResults"></table></div><p class="hint">金属角候補は指定入射角・偏差を仮定した参考値です。翼形状は自動変更しません。形状エディターの角度範囲±75°外は表で示します。</p>
+</section>
+<footer>概念設計用。翼面圧力分布・流線曲率を含む2D解析・チョーク流量・冷却・強度・寿命・CAD品質の評価は未実装です。入力例は実機データではありません。</footer>
 </article>
-</main><script src="/app.js"></script><script src="/editor.js"></script><script src="/aero.js"></script></body></html>
+</main><script src="/app.js"></script><script src="/editor.js"></script><script src="/aero.js"></script><script src="/radial.js"></script></body></html>

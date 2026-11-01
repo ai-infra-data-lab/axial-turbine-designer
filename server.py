@@ -9,6 +9,7 @@ from core import (new_design, validate, solve, geometry, obj_text, link_bundle, 
                   section_profile, section_metrics, curve_error, convert_section, restore_section,
                   interpolate_section, uid, aero_from_shape)
 from profiles import fit_bspline
+from radial import angle_candidates
 from store import Store, Conflict
 
 ROOT = Path(__file__).resolve().parent
@@ -50,7 +51,7 @@ def make_server(port=8782, data_path=None):
                         return self.send({'token':token,'version':VERSION,'design':new_design(),'saved':store.list()})
                     if path == '/api/design':
                         return self.send(store.get(parse_qs(urlsplit(self.path).query).get('id',[''])[0]))
-                    files = {'/':'index.html','/app.js':'app.js','/editor.js':'editor.js','/aero.js':'aero.js','/style.css':'style.css'}
+                    files = {'/':'index.html','/app.js':'app.js','/editor.js':'editor.js','/aero.js':'aero.js','/radial.js':'radial.js','/style.css':'style.css'}
                     if path in files:
                         ct = 'text/javascript; charset=utf-8' if path.endswith('.js') else 'text/css; charset=utf-8' if path.endswith('.css') else 'text/html; charset=utf-8'
                         return self.send((ROOT/'static'/files[path]).read_bytes(),content_type=ct)
@@ -64,7 +65,7 @@ def make_server(port=8782, data_path=None):
                 if path == '/api/link':
                     return self.send({'link':link_bundle(data['bundle'],data['component_id'])})
                 if path == '/api/import':
-                    if data.get('format') != 'axial-turbine-designer' or data.get('bundle_version') not in (1,2,3):
+                    if data.get('format') != 'axial-turbine-designer' or data.get('bundle_version') not in (1,2,3,4):
                         raise ValueError('軸流タービン設計のJSONを指定してください。')
                     return self.send({'design':validate(data['design']), 'result':None, 'revision':0})
                 d = validate(data['design'])
@@ -73,6 +74,12 @@ def make_server(port=8782, data_path=None):
                     raise ValueError('翼列の指定が不正です。')
                 if path=='/api/aero-from-shape':
                     return self.send({'aero':aero_from_shape(d,si,ri)})
+                if path=='/api/radial-candidates':
+                    if not d['radial']['enabled']:raise ValueError('半径方向解析を有効にしてください。')
+                    r=solve(d)
+                    if r['radial']['status']!='computed':raise ValueError(r['radial']['error'])
+                    return self.send({'input_hash':r['input_hash'],'candidates':angle_candidates(d,r['radial'],si,ri),
+                                      'notice':'指定入射角・偏差を仮定した候補です。形状への自動反映は行いません。'})
                 if path in ('/api/section','/api/convert','/api/restore'):
                     sections=d['stages'][si]['rows'][ri]['sections']
                     section=next((s for s in sections if s['id']==data.get('section_id')),None)

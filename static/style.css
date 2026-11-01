@@ -2,3 +2,5 @@
 .curveControls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:16px 0}.curveControls label{margin:0}.curveControls input[type=checkbox]{width:auto}.pointtable{max-height:330px;overflow:auto}#curvePanel output{display:block;padding:9px;background:#edf5f6;border-radius:4px}#curvePanel small{font-size:11px;color:#62778a}#curvePanel canvas{margin-bottom:10px}#curvePanel details{margin:12px 0}#curvePanel summary{cursor:pointer;padding:8px;background:#eff4f7}#curvePanel .fields select{display:block;width:100%;margin-top:4px}#curvePanel .metrics{margin-top:15px}
 
 #aeroFields select,#analysisMode{display:block;width:100%;margin-top:4px}input:disabled{background:#eef2f5;color:#7b8995}
+
+#radialPanel select{display:block;width:100%;margin-top:4px}#radialPanel input[type=checkbox]{width:auto}#radialPanel canvas{margin-bottom:12px}#radialState{font-size:12px;color:#88651b}.radialTable{max-height:420px;overflow:auto}#radialPanel .metrics{margin-top:15px}

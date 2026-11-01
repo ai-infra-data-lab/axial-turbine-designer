@@ -26,7 +26,7 @@ try{
  Object.defineProperty(window,'crypto',{value:webcrypto});
  window.confirm=()=>true;
  window.document.write(await readFile(path.join(root,'static','index.html'),'utf8'));
- window.eval((await readFile(path.join(root,'static','app.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','editor.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','aero.js'),'utf8')));
+ window.eval((await readFile(path.join(root,'static','app.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','editor.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','aero.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','radial.js'),'utf8')));
  const $=id=>window.document.getElementById(id);
  async function waitFor(predicate,label){const start=Date.now();while(!predicate()){if(Date.now()-start>10000)throw Error(label+' / '+$('message').textContent);await new Promise(r=>setTimeout(r,25));}}
  async function click(id,predicate=()=>$('message').className!=='error'){$(id).click();await waitFor(()=>!$(id).disabled,'button '+id);assert.ok(predicate(),`${id}: ${$('message').textContent}`);}
@@ -87,6 +87,17 @@ try{
  $('aero_deviation_model').value='aungier';$('aero_deviation_model').dispatchEvent(new window.Event('change'));assert.equal($('rowResults').rows.length,0);await click('run');assert.equal($('rowResults').rows.length,5);
  $('aero_loss_model').value='specified_y';$('aero_loss_model').dispatchEvent(new window.Event('change'));const lossY=$('aero_specified_y');assert.equal(lossY.disabled,false);lossY.value='.1';lossY.dispatchEvent(new window.Event('change'));await click('run');assert.equal($('rowResults').rows.length,5);
  $('analysisMode').value='specified_efficiency';$('analysisMode').dispatchEvent(new window.Event('change'));assert.equal($('rowResults').rows.length,0);await click('run');assert.equal($('summary').children.length,6);
+ // Radial equilibrium: solve, plot, candidates, persistence, grid change and failure retention.
+ await click('runRadial');assert.match($('radialState').textContent,/計算完了/);assert.equal($('radialStation').options.length,5);assert.equal($('radialResults').rows.length,34);assert.equal($('radialSummary').children.length,6);
+ $('radialStation').value=$('radialStation').options[1].value;$('radialStation').dispatchEvent(new window.Event('change'));$('radialMetric').value='pressure';$('radialMetric').dispatchEvent(new window.Event('change'));assert.ok(canvasLogs.get('radialPlot').points.length>20);
+ await click('radialCandidates');assert.ok($('radialCandidateResults').rows.length>=3);assert.match($('message').textContent,/自動反映は行いません/);
+ const downloads=[];window.URL.createObjectURL=blob=>{downloads.push(blob);return'blob:test';};window.URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=function(){};
+ await click('exportRadial');const csv=await downloads[0].text();assert.match(csv,/radial_pressure_residual/);assert.equal(csv.trim().split(/\r?\n/).length,167);
+ await click('save');current=await(await fetch(base+'/api/design?id='+id)).json();assert.equal(current.design.radial.enabled,true);assert.equal(current.result.radial.status,'computed');
+ $('saved').value=id;await click('load');assert.equal($('radialEnabled').checked,true);assert.equal($('radialStation').options.length,5);
+ $('radialPoints').value='65';$('radialPoints').dispatchEvent(new window.Event('change'));assert.equal($('radialResults').rows.length,0);await click('runRadial');assert.equal($('radialResults').rows.length,66);
+ $('radialLaw').value='1';$('radialLaw').dispatchEvent(new window.Event('change'));await click('runRadial',()=>$('message').className==='error');assert.match($('radialState').textContent,/不成立/);assert.equal($('summary').children.length,6);assert.match($('radialError').textContent,/亜音速解/);
+ $('radialEnabled').checked=false;$('radialEnabled').dispatchEvent(new window.Event('change'));await click('run');assert.equal($('radialResults').rows.length,0);
  const power=[...$('conditions').querySelectorAll('input')][4];power.value='1000000000';power.dispatchEvent(new window.Event('change'));await click('run',()=>$('message').className==='error');assert.match($('message').textContent,/過大/);assert.equal($('summary').children.length,0);
- console.log('PASS: existing 24 flows plus row-model selection/missing inputs, explicit geometry transfer, per-row prediction, model persistence, Aungier/Y changes, and return to legacy mode (30 scenarios).');
+ console.log('PASS: existing 30 scenarios plus radial solve, station/metric plots, angle candidates, CSV, persistence/reload, grid changes, failure preserving 1D and disabled mode (38 scenarios).');
 }finally{if(window)await window.happyDOM.abort();proc.kill();}

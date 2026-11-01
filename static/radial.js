@@ -1,4 +1,6 @@
 'use strict';
+let radialCandidateContext=null;
+function clearRadialCandidates(){radialCandidateContext=null;$('radialCandidateResults').replaceChildren();}
 function renderRadialControls(){
  const r=design.radial;$('radialEnabled').checked=r.enabled;$('radialExponent').value=r.exponent;
  $('radialLaw').value=[-1,0,1].includes(r.exponent)?String(r.exponent):'custom';
@@ -6,6 +8,7 @@ function renderRadialControls(){
  $('radialIncidence').value=r.design_incidence;$('radialDeviation').value=r.design_deviation;
 }
 function clearRadialResults(){
+ clearRadialCandidates();
  $('radialState').textContent='未実行／更新必要';
  for(const id of ['radialSummary','radialResults','radialCandidateResults','radialWarnings','radialError','radialStation','radialStageSummary'])$(id).replaceChildren();
  for(const id of ['radialPlot','radialStagePlot','radialStreamtubes']){const c=$(id);c.getContext('2d').clearRect(0,0,c.width,c.height);}
@@ -18,7 +21,7 @@ function renderRadialResults(){
  const r=radialReport();const old=$('radialStation').value;$('radialStation').replaceChildren();
  r.stations.forEach(s=>$('radialStation').add(new Option(s.label,s.id)));
  if(r.stations.some(s=>s.id===old))$('radialStation').value=old;
- $('radialError').replaceChildren();$('radialCandidateResults').replaceChildren();labels('radialWarnings',r.warnings);
+ $('radialError').replaceChildren();clearRadialCandidates();labels('radialWarnings',r.warnings);
  if(r.status==='failed'){
   $('radialState').textContent='不成立（1D結果は保持）';$('resultState').textContent='1D計算完了・径方向解析は不成立';
   const error=document.createElement('div');error.className='warn';error.textContent=r.error;$('radialError').append(error);
@@ -57,5 +60,15 @@ $('radialLaw').onchange=()=>{if($('radialLaw').value==='custom')return;design.ra
 for(const [id,key] of [['radialExponent','exponent'],['radialPoints','points'],['radialIncidence','design_incidence'],['radialDeviation','design_deviation']])$(id).onchange=()=>{design.radial[key]=$(id).value===''?null:Number($(id).value);if(key==='exponent')$('radialLaw').value=[-1,0,1].includes(design.radial.exponent)?String(design.radial.exponent):'custom';changed();};
 $('radialFlow').onchange=()=>{design.radial.flow_mode=$('radialFlow').value;changed();};
 for(const id of ['radialStation','radialMetric','radialStageMetric'])$(id).onchange=drawRadialStation;
-$('radialCandidates').onclick=()=>task(async()=>{if(!result?.radial||result.radial.status!=='computed')throw Error('先に半径方向の解析を完了してください。');const seq=epoch;const r=await api('/api/radial-candidates',payload());if(seq!==epoch)return;addRadialTable('radialCandidateResults',[['span_percent','スパン %'],['inlet_flow_angle','入口流れ角 °'],['outlet_flow_angle','出口流れ角 °'],['inlet_metal_candidate','入口金属角候補 °'],['outlet_metal_candidate','出口金属角候補 °'],['limit_note','編集範囲']],r.candidates.map(c=>({...c,span_percent:c.span*100,limit_note:c.within_editor_limits?'±75°以内':'±75°外'})));message(r.notice);});
+$('radialCandidates').onclick=()=>task(async()=>{if(!result?.radial||result.radial.status!=='computed')throw Error('先に半径方向の解析を完了してください。');const seq=epoch,{si,ri}=active();const r=await api('/api/radial-candidates',payload());if(seq!==epoch)return;radialCandidateContext={hash:r.input_hash,epoch:seq,si,ri};addRadialTable('radialCandidateResults',[['span_percent','スパン %'],['inlet_flow_angle','入口流れ角 °'],['outlet_flow_angle','出口流れ角 °'],['inlet_metal_candidate','入口金属角候補 °'],['outlet_metal_candidate','出口金属角候補 °'],['limit_note','反映対象'],['inlet_change','入口角変更 °'],['outlet_change','出口角変更 °']],r.candidates.map(c=>{const section=active().row.sections.find(s=>s.id===c.section_id);return {...c,span_percent:c.span*100,limit_note:section.profile?'対象外（曲線方式）':c.within_editor_limits?'基本断面へ反映可能':'反映不可（±75°外）',inlet_change:section.profile?null:c.inlet_metal_candidate-section.inlet_angle,outlet_change:section.profile?null:c.outlet_metal_candidate-section.outlet_angle};}));message(r.notice);});
 $('exportRadial').onclick=()=>task(async()=>{const report=radialReport();if(report?.status!=='computed')throw Error('先に半径方向の解析を完了してください。');const fields=['span','radius','axial_velocity','swirl_velocity','alpha','beta','temperature','pressure','total_temperature','total_pressure','density','mach','relative_mach','mass_fraction','radial_pressure_residual'];const units=['-','m','m/s','m/s','deg','deg','K','Pa','K','Pa','kg/m3','-','-','-','Pa/m'];const rows=[['station_id','station_label','input_hash',...fields],['-','-','SHA-256',...units]];report.stations.forEach(s=>s.points.forEach(p=>rows.push([s.id,s.label,result.input_hash,...fields.map(k=>p[k]??'')])));const escape=v=>'"'+String(v).replaceAll('"','""')+'"';download('radial-flow.csv','\ufeff'+rows.map(row=>row.map(escape).join(',')).join('\r\n'),'text/csv;charset=utf-8');message('径方向の流れ分布をCSV出力しました。');});
+
+$('applyRadialAngles').onclick=()=>task(async()=>{
+ const context=radialCandidateContext,{si,ri}=active();
+ if(!context||context.epoch!==epoch||context.si!==si||context.ri!==ri)throw Error('選択翼列の金属角候補を再表示してください。');
+ const seq=epoch;
+ const r=await api('/api/radial-apply',{...payload(),expected_hash:context.hash});
+ if(seq!==epoch||active().si!==si||active().ri!==ri)throw Error('処理中に入力が変更されました。候補を再表示してください。');
+ design=r.design;changed();resetCurveContext();renderSections();await preview();
+ message(`${r.applied_count}断面：${r.notice}`);
+});

@@ -10,7 +10,7 @@ from profiles import (section_profile, interpolate_section, validate_profile, se
 from aerodynamics import default_row, validate_settings, solve_rows
 from radial import defaults as radial_defaults, validate_settings as validate_radial_settings, analyze as analyze_radial
 
-VERSION = '0.4.0'
+VERSION = '0.4.1'
 CONVENTIONS = {'units': 'SI (m, s, kg, K, Pa, W)', 'axes': 'x=axial downstream, y=tangential positive rotation, z=radial',
                'angle': 'degrees from +x toward +y; rotor relative / stator absolute',
                'span': 'geometric radial fraction, hub=0 tip=1', 'rotation': '+y',
@@ -24,6 +24,39 @@ def now():
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode()).hexdigest()
+
+
+def apply_radial_angles(raw, stage_index, row_index, expected_hash):
+    """Explicit, atomic transfer to basic sections; archive each original shape."""
+    from radial import angle_candidates
+    d = validate(raw)
+    if digest(d) != expected_hash:
+        raise ValueError('候補表示後に入力が変更されました。候補を再表示してください。')
+    if not d['radial']['enabled']:
+        raise ValueError('半径方向解析を有効にしてください。')
+    result = solve(d)
+    if result['radial']['status'] != 'computed':
+        raise ValueError(result['radial']['error'])
+    row = d['stages'][stage_index]['rows'][row_index]
+    candidates = angle_candidates(d, result['radial'], stage_index, row_index)
+    eligible = [(s, c) for s, c in zip(row['sections'], candidates) if not s.get('profile')]
+    if not eligible:
+        raise ValueError('反映できる基本方式の断面がありません。分布曲線・両面直接編集は対象外です。')
+    if any(not c['within_editor_limits'] for _, c in eligible):
+        raise ValueError('基本断面の候補に±75°外の角度があります。入力条件を見直してください。')
+    for section, candidate in eligible:
+        original = {k:copy.deepcopy(v) for k,v in section.items() if k != 'profile_history'}
+        before = section_profile(section, 161)
+        section['inlet_angle'] = candidate['inlet_metal_candidate']
+        section['outlet_angle'] = candidate['outlet_metal_candidate']
+        entry = {'id':uid(), 'created_at':now(), 'source':original,
+                 'target_mode':'radial_angles',
+                 'conversion_error':curve_error(before, section_profile(section, 161)),
+                 'analysis_source':{'input_hash':expected_hash, 'module_version':VERSION,
+                                    'stage_id':d['stages'][stage_index]['id'], 'row_id':row['id'],
+                                    'settings':copy.deepcopy(d['radial'])}}
+        section['profile_history'] = (section.get('profile_history', []) + [entry])[-8:]
+    return validate(d), len(eligible)
 
 def new_design():
     stages = []

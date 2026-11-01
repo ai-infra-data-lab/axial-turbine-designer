@@ -90,7 +90,7 @@ try{
  // Radial equilibrium: solve, plot, candidates, persistence, grid change and failure retention.
  await click('runRadial');assert.match($('radialState').textContent,/計算完了/);assert.equal($('radialStation').options.length,5);assert.equal($('radialResults').rows.length,34);assert.equal($('radialSummary').children.length,6);
  $('radialStation').value=$('radialStation').options[1].value;$('radialStation').dispatchEvent(new window.Event('change'));$('radialMetric').value='pressure';$('radialMetric').dispatchEvent(new window.Event('change'));assert.ok(canvasLogs.get('radialPlot').points.length>20);
- await click('radialCandidates');assert.ok($('radialCandidateResults').rows.length>=3);assert.match($('message').textContent,/自動反映は行いません/);
+ await click('radialCandidates');assert.ok($('radialCandidateResults').rows.length>=3);assert.match($('message').textContent,/専用ボタン/);
  const downloads=[];window.URL.createObjectURL=blob=>{downloads.push(blob);return'blob:test';};window.URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=function(){};
  await click('exportRadial');const csv=await downloads[0].text();assert.match(csv,/radial_pressure_residual/);assert.equal(csv.trim().split(/\r?\n/).length,167);
  await click('save');current=await(await fetch(base+'/api/design?id='+id)).json();assert.equal(current.design.radial.enabled,true);assert.equal(current.result.radial.status,'computed');
@@ -98,6 +98,18 @@ try{
  $('radialPoints').value='65';$('radialPoints').dispatchEvent(new window.Event('change'));assert.equal($('radialResults').rows.length,0);await click('runRadial');assert.equal($('radialResults').rows.length,66);
  $('radialLaw').value='1';$('radialLaw').dispatchEvent(new window.Event('change'));await click('runRadial',()=>$('message').className==='error');assert.match($('radialState').textContent,/不成立/);assert.equal($('summary').children.length,6);assert.match($('radialError').textContent,/亜音速解/);
  $('radialEnabled').checked=false;$('radialEnabled').dispatchEvent(new window.Event('change'));await click('run');assert.equal($('radialResults').rows.length,0);
+ // Explicit radial-to-basic geometry transfer, stale selection protection and persisted restoration.
+ $('radialLaw').value='-1';$('radialLaw').dispatchEvent(new window.Event('change'));$('radialFlow').value='meanline_anchor';$('radialFlow').dispatchEvent(new window.Event('change'));await click('runRadial');
+ $('row').value='1:1';$('row').dispatchEvent(new window.Event('change'));await waitFor(()=>!$('preview').disabled,'basic row');
+ await click('radialCandidates');assert.match($('radialCandidateResults').textContent,/入口角変更/);
+ $('row').value='0:0';$('row').dispatchEvent(new window.Event('change'));await waitFor(()=>!$('preview').disabled,'switch row');
+ await click('applyRadialAngles',()=>$('message').className==='error');assert.match($('message').textContent,/再表示/);
+ $('row').value='1:1';$('row').dispatchEvent(new window.Event('change'));await waitFor(()=>!$('preview').disabled,'return row');
+ await click('save');await click('radialCandidates');current=await(await fetch(base+'/api/design?id='+id)).json();const beforeTransfer=structuredClone(current.design.stages[1].rows[1].sections);
+ await click('applyRadialAngles');assert.match($('message').textContent,/5断面/);assert.equal($('radialResults').rows.length,0);assert.equal($('summary').children.length,0);
+ await click('save');current=await(await fetch(base+'/api/design?id='+id)).json();assert.equal(current.result,null);assert.notEqual(current.design.stages[1].rows[1].sections[0].outlet_angle,beforeTransfer[0].outlet_angle);assert.ok(current.design.stages[1].rows[1].sections[0].profile_history.at(-1).analysis_source.input_hash);
+ $('saved').value=id;await click('load');$('editSection').value=beforeTransfer[0].id;$('editSection').dispatchEvent(new window.Event('change'));await waitFor(()=>!$('preview').disabled,'selected section');await click('restoreProfile');await click('save');current=await(await fetch(base+'/api/design?id='+id)).json();const restored=current.design.stages[1].rows[1].sections[0];delete restored.profile_history;assert.deepEqual(restored,beforeTransfer[0]);
+ await click('runRadial');await click('radialCandidates');$('radialIncidence').value='1';$('radialIncidence').dispatchEvent(new window.Event('change'));await click('applyRadialAngles',()=>$('message').className==='error');assert.match($('message').textContent,/再表示/);
  const power=[...$('conditions').querySelectorAll('input')][4];power.value='1000000000';power.dispatchEvent(new window.Event('change'));await click('run',()=>$('message').className==='error');assert.match($('message').textContent,/過大/);assert.equal($('summary').children.length,0);
- console.log('PASS: existing 30 scenarios plus radial solve, station/metric plots, angle candidates, CSV, persistence/reload, grid changes, failure preserving 1D and disabled mode (38 scenarios).');
+ console.log('PASS: existing 38 scenarios plus candidate differences, selection protection, explicit apply, invalidation/persistence, restore after reload and stale input protection (44 scenarios).');
 }finally{if(window)await window.happyDOM.abort();proc.kill();}

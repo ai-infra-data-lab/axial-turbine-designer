@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from core import (new_design, validate, solve, geometry, obj_text, link_bundle, VERSION,
                   section_profile, section_metrics, curve_error, convert_section, restore_section,
-                  interpolate_section, uid, aero_from_shape)
+                  interpolate_section, uid, aero_from_shape, apply_radial_angles)
 from profiles import fit_bspline
 from radial import angle_candidates
 from store import Store, Conflict
@@ -74,12 +74,16 @@ def make_server(port=8782, data_path=None):
                     raise ValueError('翼列の指定が不正です。')
                 if path=='/api/aero-from-shape':
                     return self.send({'aero':aero_from_shape(d,si,ri)})
+                if path=='/api/radial-apply':
+                    updated,count=apply_radial_angles(d,si,ri,data.get('expected_hash'))
+                    return self.send({'design':updated,'applied_count':count,
+                                      'notice':'基本断面へ反映しました。解析結果は更新必要です。各断面の履歴から復元できます。'})
                 if path=='/api/radial-candidates':
                     if not d['radial']['enabled']:raise ValueError('半径方向解析を有効にしてください。')
                     r=solve(d)
                     if r['radial']['status']!='computed':raise ValueError(r['radial']['error'])
                     return self.send({'input_hash':r['input_hash'],'candidates':angle_candidates(d,r['radial'],si,ri),
-                                      'notice':'指定入射角・偏差を仮定した候補です。形状への自動反映は行いません。'})
+                                      'notice':'指定入射角・偏差を仮定した候補です。基本断面への反映は専用ボタンで実行します。'})
                 if path in ('/api/section','/api/convert','/api/restore'):
                     sections=d['stages'][si]['rows'][ri]['sections']
                     section=next((s for s in sections if s['id']==data.get('section_id')),None)

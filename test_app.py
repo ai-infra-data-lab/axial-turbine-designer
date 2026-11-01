@@ -191,4 +191,16 @@ class ApiTests(unittest.TestCase):
         saved=self.post('/api/save',{'design':d,'revision':0,'include_result':True})
         self.assertEqual(saved['result']['radial']['status'],'computed')
 
+    def test_radial_apply_api_checks_hash_and_keeps_result_unsaved(self):
+        d=new_design();d['radial'].update(enabled=True,flow_mode='meanline_anchor')
+        candidate=self.post('/api/radial-candidates',{'design':d,'stage_index':0,'row_index':1})
+        payload={'design':d,'stage_index':0,'row_index':1,'expected_hash':candidate['input_hash']}
+        response=self.post('/api/radial-apply',payload)
+        self.assertEqual(response['applied_count'],5)
+        self.assertNotIn('result',response)
+        self.assertEqual(response['design']['stages'][0]['rows'][1]['sections'][0]['outlet_angle'],candidate['candidates'][0]['outlet_metal_candidate'])
+        payload['design']['radial']['design_incidence']=1
+        with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/radial-apply',payload)
+        self.assertEqual(e.exception.code,400)
+
 if __name__=='__main__':unittest.main(verbosity=2)

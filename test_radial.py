@@ -3,7 +3,8 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
-from core import new_design, solve, solve_meanline, validate, digest, aero_from_shape
+from core import new_design, solve, solve_meanline, validate, digest, aero_from_shape, apply_radial_angles
+from profiles import convert_section, restore_section
 from radial import station_solution, station_sources, angle_candidates
 from store import Store
 
@@ -78,6 +79,52 @@ class StationTests(unittest.TestCase):
 
 class RadialIntegrationTests(unittest.TestCase):
     def setUp(self):self.d=example()
+
+    def test_apply_basic_angles_preserves_other_fields_and_archives_source(self):
+        self.d['radial']['flow_mode']='meanline_anchor'
+        original=copy.deepcopy(self.d);source_hash=digest(self.d)
+        candidates=angle_candidates(self.d,solve(self.d)['radial'],0,1)
+        updated,count=apply_radial_angles(self.d,0,1,source_hash)
+        self.assertEqual(count,5);self.assertEqual(self.d,original)
+        self.assertEqual(updated['stages'][1],original['stages'][1])
+        self.assertEqual(updated['stages'][0]['rows'][0],original['stages'][0]['rows'][0])
+        for section,before,candidate in zip(updated['stages'][0]['rows'][1]['sections'],original['stages'][0]['rows'][1]['sections'],candidates):
+            self.assertEqual(section['inlet_angle'],candidate['inlet_metal_candidate'])
+            self.assertEqual(section['outlet_angle'],candidate['outlet_metal_candidate'])
+            for key in ('stagger','thickness','chord','sweep','lean','id','span'):
+                self.assertEqual(section[key],before[key])
+            restored=restore_section(section);restored.pop('profile_history')
+            self.assertEqual(restored,before)
+            self.assertEqual(section['profile_history'][-1]['analysis_source']['input_hash'],source_hash)
+        with tempfile.TemporaryDirectory() as tmp:
+            store=Store(Path(tmp)/'apply.sqlite3');store.save(updated,0,None)
+            self.assertEqual(store.get(updated['id'])['design'],updated)
+
+    def test_apply_skips_curve_sections_and_rejects_all_curve_row(self):
+        self.d['radial']['flow_mode']='meanline_anchor'
+        sections=self.d['stages'][0]['rows'][1]['sections']
+        sections[0],_=convert_section(sections[0],'distribution')
+        sections[1],_=convert_section(sections[1],'direct')
+        updated,count=apply_radial_angles(self.d,0,1,digest(self.d))
+        self.assertEqual(count,3)
+        self.assertEqual(updated['stages'][0]['rows'][1]['sections'][:2],sections[:2])
+        for i in range(2,5):sections[i],_=convert_section(sections[i],'distribution')
+        with self.assertRaisesRegex(ValueError,'基本方式の断面がありません'):
+            apply_radial_angles(self.d,0,1,digest(self.d))
+
+    def test_apply_rejects_stale_disabled_failed_and_out_of_range_atomically(self):
+        original=copy.deepcopy(self.d)
+        with self.assertRaisesRegex(ValueError,'入力が変更'):
+            apply_radial_angles(self.d,0,1,'stale')
+        with self.assertRaisesRegex(ValueError,'75'):
+            apply_radial_angles(self.d,0,0,digest(self.d))
+        self.assertEqual(self.d,original)
+        self.d['radial']['enabled']=False
+        with self.assertRaisesRegex(ValueError,'有効'):
+            apply_radial_angles(self.d,0,1,digest(self.d))
+        self.d['radial'].update(enabled=True,exponent=1.)
+        with self.assertRaisesRegex(ValueError,'亜音速解の範囲'):
+            apply_radial_angles(self.d,0,1,digest(self.d))
 
     def test_all_planes_mass_euler_and_free_vortex_stage_power(self):
         result=solve(self.d);report=result['radial']

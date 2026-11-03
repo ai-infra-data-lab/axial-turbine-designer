@@ -12,6 +12,8 @@ import meridional
 from profiles import fit_bspline, apply_edge_settings
 from radial import angle_candidates
 from store import Store, Conflict
+from turbomachinery_common import loads as load_common, summary as common_summary
+from common_exchange import export_geometry
 
 ROOT = Path(__file__).resolve().parent
 LIMIT = 8*1024*1024
@@ -63,6 +65,8 @@ def make_server(port=8782, data_path=None):
                 if not 0 < length <= LIMIT:
                     raise ValueError('JSONは8 MB以内です。')
                 data = json.loads(self.rfile.read(length))
+                if path=='/api/common-check':
+                    return self.send(common_summary(load_common(data['text'])))
                 if path == '/api/link':
                     return self.send({'link':link_bundle(data['bundle'],data['component_id'])})
                 if path == '/api/import':
@@ -80,6 +84,8 @@ def make_server(port=8782, data_path=None):
                     raise ValueError('翼列の指定が不正です。')
                 if path=='/api/aero-from-shape':
                     return self.send({'aero':aero_from_shape(d,si,ri)})
+                if path=='/api/common-export':
+                    return self.send({'document':export_geometry(d,si,ri)})
                 if path in ('/api/meridional','/api/meridional-reset','/api/meridional-te'):
                     if path=='/api/meridional-te':d=set_row_te(d,si,ri,data.get('target_te'))
                     d=validate(d)

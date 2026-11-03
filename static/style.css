@@ -8,3 +8,5 @@
 #edgeEnabled{width:auto}#edgeFields select{display:block;width:100%}#edgeConnections{font-variant-numeric:tabular-nums}
 
 #meridionalEnabled{width:auto}#meridionalPanel select{display:block;width:100%;margin-top:4px}#meridionalState{font-size:12px;color:#88651b}#meridionalPanel canvas{margin-bottom:12px}
+
+.commonExchange{margin:12px 30px}.commonExchange output{display:block;overflow-wrap:anywhere;font-size:12px}

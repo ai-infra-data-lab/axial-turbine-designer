@@ -1,6 +1,10 @@
-# 軸流タービン設計 子午面設計版 0.6.0
+# 軸流タービン設計 共通形状交換対応 0.6.1
 
 ガスタービン用軸流タービンの概念設計を行う独立したローカルWebアプリです。Python標準ライブラリのみで動作し、外部CDNや外部サービスは使いません。既存アプリのコード・データベースは変更しません。
+
+## 圧縮機との共通形状交換
+
+画面上部から選択翼列の共通形状JSONを出力し、両アプリの共通JSONを読取専用で検査できます。m・回転軸Z・連続角radとし、元の規約とハッシュを保持します。編集可能な設計の相互取込や形状生成器の統合は後続です。詳しくは `COMMON_EXCHANGE.md` を参照してください。
 
 ## 起動
 
@@ -101,7 +105,7 @@ A = mass_flow/(rho Cax), height = A/(2πrm)
 
 ## 検証
 
-`python -m unittest -v test_app.py test_profiles.py test_aerodynamics.py test_radial.py test_edges.py test_meridional.py` で数値・形状・保存・HTTP APIを検証します。開発用DOMテストはNode.js 20以上で `npm install --ignore-scripts`、`npm test` を実行します。ロックファイルどおりの開発環境には `pnpm install --frozen-lockfile --ignore-scripts`、`pnpm test` を使います。Pythonを別途指定する場合は環境変数 `PYTHON` を設定してください。`npm run check` で画面スクリプトの構文を確認できます。アプリ本体にはNodeは不要です。検証結果と未確認事項は `VERIFICATION.md` を参照してください。
+`python -m unittest -v test_app.py test_profiles.py test_aerodynamics.py test_radial.py test_edges.py test_meridional.py test_common_exchange.py` で数値・形状・保存・HTTP APIを検証します。開発用DOMテストはNode.js 20以上で `npm install --ignore-scripts`、`npm test` を実行します。ロックファイルどおりの開発環境には `pnpm install --frozen-lockfile --ignore-scripts`、`pnpm test` を使います。Pythonを別途指定する場合は環境変数 `PYTHON` を設定してください。`npm run check` で画面スクリプトの構文を確認できます。アプリ本体にはNodeは不要です。検証結果と未確認事項は `VERIFICATION.md` を参照してください。
 
 ## 設計参考資料
 

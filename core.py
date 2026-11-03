@@ -11,7 +11,7 @@ from aerodynamics import default_row, validate_settings, solve_rows
 import meridional
 from radial import defaults as radial_defaults, validate_settings as validate_radial_settings, analyze as analyze_radial
 
-VERSION = '0.6.0'
+VERSION = '0.6.1'
 CONVENTIONS = {'units': 'SI (m, s, kg, K, Pa, W)', 'axes': 'x=axial downstream, y=tangential positive rotation, z=radial',
                'angle': 'degrees from +x toward +y; rotor relative / stator absolute',
                'span': 'geometric radial fraction, hub=0 tip=1', 'rotation': '+y',

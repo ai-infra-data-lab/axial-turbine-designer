@@ -251,4 +251,15 @@ class ApiTests(unittest.TestCase):
         response=self.post('/api/meridional-reset',{'design':updated})
         self.assertFalse(response['design']['meridional']['enabled'])
 
+    def test_common_geometry_export_check_and_tamper_rejection(self):
+        d=new_design();before=copy.deepcopy(d)
+        doc=self.post('/api/common-export',{'design':d})['document']
+        receipt=self.post('/api/common-check',{'text':json.dumps(doc)})
+        self.assertEqual(receipt['source_snapshot_hash'],digest(d))
+        self.assertFalse(receipt['editable_design_import']);self.assertEqual(d,before)
+        self.assertEqual(receipt['source_app'],'axial_turbine_designer')
+        doc['rows'][0]['curves'][0]['points'][0][1]*=2
+        with self.assertRaises(urllib.error.HTTPError) as e:self.post('/api/common-check',{'text':json.dumps(doc)})
+        self.assertEqual(e.exception.code,400)
+
 if __name__=='__main__':unittest.main(verbosity=2)

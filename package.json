@@ -1,6 +1,6 @@
 {
   "name": "axial-turbine-designer",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Development-only DOM tests for the standalone Python axial turbine designer",

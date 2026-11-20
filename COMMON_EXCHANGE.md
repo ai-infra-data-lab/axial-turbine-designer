@@ -13,3 +13,15 @@
 共通パッケージはこのアプリ内に同梱し、親フォルダーがなくても動作します。`turbomachinery_common/VENDORED.json` は版とソースSHA-256の記録です。同梱コピーを直接改変せず、正本 `../turbomachinery_common/` から同期・検査します。共通JSONのschemaは1、既存設計JSONのschema/bundleは6のままです。
 
 検証コマンド：既存unittestへ `test_common_exchange.py` を追加。`node test_ui.mjs` は出力・読取専用の確認・改変拒否を含みます。実ブラウザーのファイル選択や描画、外部CAD/CFDの取込は別途確認が必要です。
+# 追加：子午面評価API v1（2026-11-20）
+
+`common_meridional.wall_evaluator(design, 'hub')`（または`'casing'`）で、
+有効な設計子午面の既存PCHIP/linear係数を共通形式で読み取れる。
+`jet(parameter, side=None)`のパラメータは軸方向位置mで、
+`parameter_kind='axial_position_m'`と明示する。圧縮機の子午面距離とは区別する。
+`position_m`は軸位置・半径、`first`と`second_per_m`は軸位置による導関数、
+`tangent`は単位接線、`signed_curvature_per_m`は軸から半径への回転を正とした曲率。
+内部境界は`knots_m`から選び、`side='left'/'right'`を必須とする。
+無効な子午面と範囲外評価は拒否する。元設計のhashを保持し、設計を変更しない。
+Python開発者向けAPIで、画面・HTTP操作、SQLite、既存形状生成・1D計算への接続は変更しない。
+同梱`curves.py`もSHA-256を固定する。交換schema/版は維持。

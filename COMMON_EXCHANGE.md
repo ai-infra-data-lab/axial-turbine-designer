@@ -25,3 +25,17 @@
 無効な子午面と範囲外評価は拒否する。元設計のhashを保持し、設計を変更しない。
 Python開発者向けAPIで、画面・HTTP操作、SQLite、既存形状生成・1D計算への接続は変更しない。
 同梱`curves.py`もSHA-256を固定する。交換schema/版は維持。
+
+## 追加：長さ写像API v1（2026-11-20）
+
+`common_meridional.wall_length_map(design, 'hub')`（または`'casing'`）で、
+開始点から指定した絶対軸位置までの距離mを求める`distance_at(x_m)`と、
+距離から絶対軸位置mに戻す`parameter_at(distance_m)`を使える。
+曲線開始軸位置が負でも、その点からの距離は0 m。
+`total.value_m`は全長、`total.estimated_error_m`は適応Simpson積分の推定誤差。
+逆変換は`distance_residual_m`と`estimated_distance_error_m`（残差絶対値＋積分推定誤差）を返す。
+`absolute_tolerance_m=1e-10`、`distance_tolerance_m=1e-8`が既定値。
+元のlinear/PCHIP区間を別々に積分し、片側導関数を使う。
+推定誤差は厳密な上界ではなく、丸め・目標距離自体の不確かさ・実機精度は含まない。
+範囲外・速度0・精度不足・反復上限到達は拒否する。新しい`lengths.py`も同梱hashを照合する。
+既存の画面・配置・翼形状・1D計算・SQLiteへ自動適用しない開発者向けAPIである。

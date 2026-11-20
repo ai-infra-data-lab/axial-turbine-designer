@@ -1,7 +1,8 @@
 {
   "files": {
     "__init__.py": "4e698c2dde9c8ffbb9b351d2cbe8b71a932e126754e291d1054428a13265718f",
-    "curves.py": "778c505c676f07c0aad68c60cb4253f1a125c9a2b90614a6daea39dc837aeb87"
+    "curves.py": "778c505c676f07c0aad68c60cb4253f1a125c9a2b90614a6daea39dc837aeb87",
+    "lengths.py": "497ccf0fea3353dfc756015b266f59252b5b350c3d658290b3e362d66ad4542c"
   },
   "package": "turbomachinery-common",
   "version": "0.1.0"

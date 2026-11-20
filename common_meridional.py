@@ -2,6 +2,12 @@
 from core import validate, digest
 from meridional import Curve
 from turbomachinery_common.curves import MeridionalEvaluator
+from turbomachinery_common.lengths import ArcLengthMap
+
+
+def wall_length_map(raw, wall='hub', **options):
+    """Convert absolute axial position to distance from the native wall start."""
+    return ArcLengthMap(wall_evaluator(raw, wall), **options)
 
 
 def wall_evaluator(raw, wall='hub'):

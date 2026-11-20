@@ -2,10 +2,34 @@ import copy
 import unittest
 from core import new_design, validate
 from meridional import Curve
-from common_meridional import wall_evaluator
+from common_meridional import wall_evaluator, wall_length_map
 
 
 class CommonMeridionalTests(unittest.TestCase):
+    def test_wall_distance_map_uses_axial_position_not_distance(self):
+        import math
+        d = self.design('linear')
+        before = copy.deepcopy(d)
+        m = wall_length_map(d)
+        expected = math.hypot(.3, .01)+math.hypot(.4, -.005)
+        self.assertAlmostEqual(m.total.value_m, expected, places=14)
+        self.assertEqual(m.parameter_kind, 'axial_position_m')
+        self.assertEqual(m.parameter_at(0.).parameter, -.2)
+        for x in (-.1, .1, .4):
+            self.assertAlmostEqual(m.parameter_at(m.distance_at(x).value_m).parameter, x, places=7)
+        self.assertEqual(d, before)
+
+    def test_pchip_distance_against_independent_refined_polyline(self):
+        import math
+        d = self.design()
+        m = wall_length_map(d, 'casing')
+        native = Curve(d['meridional']['casing'])
+        xs = [-.2+.7*i/20000 for i in range(20001)]
+        radii = [native.jet(x)[0] for x in xs]
+        polyline = sum(math.hypot(b-a, rb-ra) for a,b,ra,rb in zip(xs,xs[1:],radii,radii[1:]))
+        self.assertLess(abs(m.total.value_m-polyline), 2e-10)
+        self.assertLessEqual(m.total.estimated_error_m, 1e-10)
+
     def design(self, mode='pchip'):
         d = new_design()
         d['meridional']['enabled'] = True

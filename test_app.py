@@ -251,6 +251,23 @@ class ApiTests(unittest.TestCase):
         response=self.post('/api/meridional-reset',{'design':updated})
         self.assertFalse(response['design']['meridional']['enabled'])
 
+    def test_common_meridional_inspection_is_readonly_and_validates_query(self):
+        d=new_design();d['meridional']['enabled']=True
+        original=copy.deepcopy(d)
+        self.post('/api/save',{'design':d,'revision':0,'include_result':True})
+        url=self.url+'/api/design?id='+d['id']
+        before=json.load(urllib.request.urlopen(url))
+        report=self.post('/api/common-meridional',{'design':d,'wall':'hub'})
+        self.assertEqual(report['format'],'common-meridional-inspection')
+        self.assertEqual(report['source_hash'],digest(d))
+        inverse=self.post('/api/common-meridional',{'design':d,'wall':'hub','mode':'distance','value':report['total']['value_m']/2})
+        self.assertLessEqual(inverse['inverse']['estimated_distance_error_m'],1e-8)
+        for extra in ({'wall':'unknown'},{'mode':'bad'},{'value':True},{'value':999}):
+            with self.assertRaises(urllib.error.HTTPError) as error:self.post('/api/common-meridional',{'design':d,**extra})
+            self.assertEqual(error.exception.code,400)
+        self.assertEqual(json.load(urllib.request.urlopen(url)),before)
+        self.assertEqual(d,original)
+
     def test_common_geometry_export_check_and_tamper_rejection(self):
         d=new_design();before=copy.deepcopy(d)
         doc=self.post('/api/common-export',{'design':d})['document']

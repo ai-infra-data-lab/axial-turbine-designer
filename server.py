@@ -14,6 +14,7 @@ from radial import angle_candidates
 from store import Store, Conflict
 from turbomachinery_common import loads as load_common, summary as common_summary
 from common_exchange import export_geometry
+from common_meridional import inspect_wall
 
 ROOT = Path(__file__).resolve().parent
 LIMIT = 8*1024*1024
@@ -86,6 +87,9 @@ def make_server(port=8782, data_path=None):
                     return self.send({'aero':aero_from_shape(d,si,ri)})
                 if path=='/api/common-export':
                     return self.send({'document':export_geometry(d,si,ri)})
+                if path=='/api/common-meridional':
+                    return self.send(inspect_wall(d, data.get('wall','hub'), mode=data.get('mode','parameter'),
+                                                  value=data.get('value'), side=data.get('side')))
                 if path in ('/api/meridional','/api/meridional-reset','/api/meridional-te'):
                     if path=='/api/meridional-te':d=set_row_te(d,si,ri,data.get('target_te'))
                     d=validate(d)

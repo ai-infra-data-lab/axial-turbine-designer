@@ -26,7 +26,7 @@ try{
  Object.defineProperty(window,'crypto',{value:webcrypto});
  window.confirm=()=>true;
  window.document.write(await readFile(path.join(root,'static','index.html'),'utf8'));
- window.eval((await readFile(path.join(root,'static','app.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','editor.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','aero.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','radial.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','edges.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','meridional.js'),'utf8')));
+ window.eval((await readFile(path.join(root,'static','app.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','editor.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','aero.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','radial.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','edges.js'),'utf8'))+'\n'+(await readFile(path.join(root,'static','meridional.js'),'utf8'))+'\nwindow.__inspectionState=()=>JSON.stringify({design,result,dirty,revision,epoch});');
  const $=id=>window.document.getElementById(id);
  async function waitFor(predicate,label){const start=Date.now();while(!predicate()){if(Date.now()-start>10000)throw Error(label+' / '+$('message').textContent);await new Promise(r=>setTimeout(r,25));}}
  async function click(id,predicate=()=>$('message').className!=='error'){$(id).click();await waitFor(()=>!$(id).disabled,'button '+id);assert.ok(predicate(),`${id}: ${$('message').textContent}`);}
@@ -131,6 +131,32 @@ try{
  $('meridionalTargetTe').value=String(Number($('meridionalTargetTe').value)+.001);await click('applyMeridionalTe');assert.equal($('meridionalComparisons').rows.length,1);await click('save');current=await(await fetch(base+'/api/design?id='+id)).json();assert.equal(current.design.stages[1].rows[1].sections[0].profile_history.at(-1).target_mode,'meridional_chord');
  $('meridionalWall').value='casing';$('meridionalWall').dispatchEvent(new window.Event('change'));wallInput=$('meridionalWallPoints').rows[3].cells[2].querySelector('input');wallInput.value='.1';wallInput.dispatchEvent(new window.Event('change'));await click('applyMeridional',()=>$('message').className==='error');assert.match($('message').textContent,/交差/);await click('discardMeridionalDraft');assert.equal($('meridionalEnabled').checked,true);
  $('meridionalInterpolation').value='linear';$('meridionalInterpolation').dispatchEvent(new window.Event('change'));await click('applyMeridional');assert.match($('meridionalWarnings').textContent,/角があり/);$('meridionalEnabled').checked=false;$('meridionalEnabled').dispatchEvent(new window.Event('change'));await click('applyMeridional');assert.match($('meridionalState').textContent,/無効/);
+ // Six shared-inspection flows: disabled, readonly parameter, distance, sides/range,
+ // a late HTTP response, and invalidation by an unapplied wall draft.
+ await click('inspectCommonWall',()=>$('message').className==='error');assert.match($('message').textContent,/有効/);assert.equal($('commonWallValues').rows.length,0);
+ $('meridionalEnabled').checked=true;$('meridionalEnabled').dispatchEvent(new window.Event('change'));await click('applyMeridional');await click('run');await click('save');
+ $('commonWall').value='casing';$('commonWall').dispatchEvent(new window.Event('change'));
+ const inspectionBefore=await(await fetch(base+'/api/design?id='+id)).json();
+ const readonlyInspectionState=()=>window.__inspectionState();
+ const inspectionState=readonlyInspectionState();
+ await click('inspectCommonWall');assert.equal($('commonWallValues').rows.length,11);assert.match($('commonWallState').textContent,/定義域/);assert.equal(readonlyInspectionState(),inspectionState);
+ $('commonWallMode').value='distance';$('commonWallMode').dispatchEvent(new window.Event('change'));$('commonWallValue').value='.01';$('commonWallValue').dispatchEvent(new window.Event('input'));
+ await click('inspectCommonWall');assert.equal($('commonWallValues').rows.length,13);assert.match($('commonWallValues').textContent,/逆変換の距離残差/);assert.equal(readonlyInspectionState(),inspectionState);
+ $('commonWallMode').value='parameter';$('commonWallMode').dispatchEvent(new window.Event('change'));await click('inspectCommonWall');assert.ok($('commonWallKnot').options.length>=4);
+ $('commonWallKnot').selectedIndex=2;$('commonWallKnot').dispatchEvent(new window.Event('change'));await click('inspectCommonWall',()=>$('message').className==='error');assert.equal($('commonWallValues').rows.length,0);
+ for(const side of ['left','right']){$('commonWallSide').value=side;$('commonWallSide').dispatchEvent(new window.Event('change'));await click('inspectCommonWall');assert.match($('commonWallState').textContent,new RegExp(side));}
+ $('commonWallValue').value='999';$('commonWallValue').dispatchEvent(new window.Event('input'));await click('inspectCommonWall',()=>$('message').className==='error');assert.equal($('commonWallValues').rows.length,0);assert.equal(readonlyInspectionState(),inspectionState);
+ const inspectionFetch=window.fetch;let releaseInspection;
+ try{
+  window.fetch=async(url,options)=>{const response=await inspectionFetch(url,options);if(String(url).includes('/api/common-meridional'))await new Promise(resolve=>{releaseInspection=resolve;});return response;};
+  $('commonWallValue').value='';$('commonWallSide').value='';$('inspectCommonWall').click();await waitFor(()=>releaseInspection,'pending inspection');
+  $('commonWallValue').value='.002';$('commonWallValue').dispatchEvent(new window.Event('input'));releaseInspection();await waitFor(()=>!$('inspectCommonWall').disabled,'late inspection');assert.equal($('commonWallValues').rows.length,0);
+ }finally{window.fetch=inspectionFetch;}
+ assert.equal(readonlyInspectionState(),inspectionState);assert.deepEqual(await(await fetch(base+'/api/design?id='+id)).json(),inspectionBefore);
+ $('commonWallValue').value='';await click('inspectCommonWall');assert.equal($('commonWallValues').rows.length,11);
+ wallInput=$('meridionalWallPoints').rows[1].cells[2].querySelector('input');wallInput.value=String(Number(wallInput.value)+.0001);wallInput.dispatchEvent(new window.Event('change'));assert.equal($('commonWallValues').rows.length,0);
+ await click('inspectCommonWall',()=>$('message').className==='error');assert.match($('message').textContent,/適用.*破棄/);await click('discardMeridionalDraft');
+ $('meridionalEnabled').checked=false;$('meridionalEnabled').dispatchEvent(new window.Event('change'));await click('applyMeridional');
  // Common exchange is additional sampled output and read-only receipt, not design import.
  await click('save');const beforeCommon=await(await fetch(base+'/api/design?id='+id)).json();
  await click('commonExport');const commonDoc=JSON.parse(await downloads.at(-1).text());assert.equal(commonDoc.format,'turbomachinery-geometry');assert.equal(commonDoc.coordinates.rotation_axis,'Z');assert.equal(commonDoc.source.rotation_sign,-1);
@@ -139,5 +165,5 @@ try{
  const afterCommon=await(await fetch(base+'/api/design?id='+id)).json();assert.deepEqual(afterCommon,beforeCommon);
  commonDoc.rows[0].curves[0].points[0][1]*=2;await checkCommonFile(commonDoc);assert.equal($('commonReceipt').textContent,'');assert.equal($('message').className,'error');assert.match($('message').textContent,/hash mismatch/);
  const power=[...$('conditions').querySelectorAll('input')][4];power.value='1000000000';power.dispatchEvent(new window.Event('change'));await click('run',()=>$('message').className==='error');assert.match($('message').textContent,/過大/);assert.equal($('summary').children.length,0);
- console.log('PASS: existing 63 scenarios plus common JSON export, read-only integrity receipt without design changes, and tampered content rejection (66 scenarios).');
+ console.log('PASS: existing 66 scenarios plus 6 shared meridional inspection flows (72 scenarios), including readonly design/results, inverse, sides, range, late response and draft invalidation.');
 }finally{if(window)await window.happyDOM.abort();proc.kill();}

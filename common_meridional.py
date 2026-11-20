@@ -5,6 +5,11 @@ from turbomachinery_common.curves import MeridionalEvaluator
 from turbomachinery_common.lengths import ArcLengthMap
 
 
+def inspect_wall(raw, wall='hub', **query):
+    from turbomachinery_common.inspection import inspect_curve
+    return {**inspect_curve(wall_evaluator(raw, wall), **query), 'wall': wall}
+
+
 def wall_length_map(raw, wall='hub', **options):
     """Convert absolute axial position to distance from the native wall start."""
     return ArcLengthMap(wall_evaluator(raw, wall), **options)

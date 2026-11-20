@@ -9,17 +9,19 @@ function syncMeridionalRows(){
  return before!==JSON.stringify(m);
 }
 function renderMeridionalControls(){
+ clearCommonWallInspection();
  meridionalDraftRevision++;meridionalDraft=structuredClone(design.meridional);meridionalDraftDirty=false;
  $('meridionalEnabled').checked=meridionalDraft.enabled;$('meridionalInterpolation').value=meridionalDraft.interpolation;
  renderWallPoints();renderMeridionalPlacements();renderMeridionalTarget();
 }
 function clearMeridionalReport(){
+ clearCommonWallInspection();
  meridionalReport=null;meridionalTransform=null;
  for(const id of ['meridionalStations','meridionalComparisons','meridionalWarnings'])$(id).replaceChildren();
  $('meridionalState').textContent='更新必要';
  for(const id of ['meridionalDesignPlot','meridionalMetricPlot']){const c=$(id);c.getContext('2d').clearRect(0,0,c.width,c.height);}
 }
-function meridionalDraftChanged(){meridionalDraftRevision++;meridionalDraftDirty=true;$('meridionalState').textContent='子午面を編集中：反映が必要';$('meridionalComparisons').replaceChildren();drawMeridionalDraft();}
+function meridionalDraftChanged(){clearCommonWallInspection();meridionalDraftRevision++;meridionalDraftDirty=true;$('meridionalState').textContent='子午面を編集中：反映が必要';$('meridionalComparisons').replaceChildren();drawMeridionalDraft();}
 function renderWallPoints(){
  const side=$('meridionalWall').value,points=meridionalDraft[side],table=$('meridionalWallPoints');table.replaceChildren();
  const head=document.createElement('tr');['点','軸方向 x [m]','半径 r [m]',''].forEach(name=>{const th=document.createElement('th');th.textContent=name;head.append(th);});table.append(head);
@@ -90,3 +92,38 @@ function meridionalPointer(event){const rect=meridionalCanvas.getBoundingClientR
 meridionalCanvas.onpointerdown=event=>{if(!meridionalTransform||busy)return;const q=meridionalPointer(event),side=$('meridionalWall').value;let best=null,distance=14;meridionalDraft[side].forEach((p,i)=>{const a=meridionalTransform.at(p),v=Math.hypot(a[0]-q[0],a[1]-q[1]);if(v<distance){distance=v;best=i;}});if(best!==null){meridionalDrag={side,index:best};meridionalCanvas.setPointerCapture?.(event.pointerId);}};
 meridionalCanvas.onpointermove=event=>{if(!meridionalDrag||busy)return;const {side,index}=meridionalDrag,p=meridionalDraft[side],q=meridionalPointer(event),t=meridionalTransform;let x=(q[0]-t.origin[0])/t.scale,r=(t.origin[1]-q[1])/t.scale;x=Math.max(index?p[index-1][0]+1e-5:-20,Math.min(index<p.length-1?p[index+1][0]-1e-5:20,x));r=Math.max(.0001,Math.min(30,r));p[index]=[x,r];if(index===0||index===p.length-1){const other=meridionalDraft[side==='hub'?'casing':'hub'];other[index===0?0:other.length-1][0]=x;}meridionalDraftChanged();renderWallPoints();};
 meridionalCanvas.onpointerup=meridionalCanvas.onpointercancel=()=>{meridionalDrag=null;};
+
+// Read-only shared inspection; does not call changed() or replace the design.
+function clearCommonWallInspection(resetKnots=true){
+ $('commonWallValues').replaceChildren();$('commonWallState').textContent='未確認・入力更新時は再確認してください。';
+ if(resetKnots)$('commonWallKnot').replaceChildren(new Option('先に「共通APIで確認」を実行',''));
+}
+function commonWallQuery(){return{wall:$('commonWall').value,mode:$('commonWallMode').value,value:$('commonWallValue').value,side:$('commonWallSide').value};}
+for(const id of ['commonWall','commonWallMode'])$(id).onchange=()=>{$('commonWallValue').value='';$('commonWallSide').value='';clearCommonWallInspection();};
+$('commonWallValue').oninput=()=>clearCommonWallInspection(false);
+$('commonWallSide').onchange=()=>clearCommonWallInspection(false);
+$('commonWallKnot').onchange=()=>{if($('commonWallKnot').value!==''){$('commonWallValue').value=$('commonWallKnot').value;clearCommonWallInspection(false);}};
+$('inspectCommonWall').onclick=()=>task(async()=>{
+ clearCommonWallInspection(false);
+ if(meridionalDraftDirty)throw Error('子午面の編集を適用するか、編集を破棄してから確認してください。');
+ if(!design.meridional.enabled)throw Error('設計子午面を有効にして適用してください。');
+ const query=commonWallQuery(),signature=JSON.stringify(query),seq=epoch,draftRevision=meridionalDraftRevision;
+ if($('commonWallValue').validity.badInput)throw Error('評価値を正しく入力してください。');
+ const value=query.value.trim()===''?null:Number(query.value);
+ if(value!==null&&!Number.isFinite(value))throw Error('有限の評価値を入力してください。');
+ const r=await api('/api/common-meridional',{...payload(),wall:query.wall,mode:query.mode,value,side:query.side||null});
+ if(seq!==epoch||draftRevision!==meridionalDraftRevision||signature!==JSON.stringify(commonWallQuery()))return;
+ const j=r.jet,d=r.distance,t=r.total;
+ const rows=[['元パラメータ（軸位置）',j.parameter,'m'],['軸位置',j.position_m[0],'m'],['半径',j.position_m[1],'m'],
+ ['累積距離',d.value_m,'m'],['全長',t.value_m,'m'],['積分推定誤差（評価点）',d.estimated_error_m,'m'],
+ ['積分推定誤差（全長）',t.estimated_error_m,'m'],['接線：軸成分',j.tangent[0],'−'],['接線：半径成分',j.tangent[1],'−'],['符号付き曲率',j.signed_curvature_per_m,'1/m']];
+ if(r.inverse)rows.push(['逆変換の距離残差',r.inverse.distance_residual_m,'m'],['逆変換の推定距離誤差',r.inverse.estimated_distance_error_m,'m']);
+ const table=$('commonWallValues'),head=document.createElement('tr');
+ for(const label of ['項目','値','単位']){const th=document.createElement('th');th.textContent=label;head.append(th);}table.append(head);
+ for(const row of rows){const tr=document.createElement('tr');for(const v of row){const td=document.createElement('td');td.textContent=typeof v==='number'?v.toPrecision(12):String(v);tr.append(td);}table.append(tr);}
+ $('commonWallState').textContent=`定義域 ${r.parameter_domain_m[0]} ～ ${r.parameter_domain_m[1]} m / 要素 ${j.element_id} / 側 ${j.side||'区間内・端点'}`;
+ $('commonWallKnot').replaceChildren(new Option('任意の値を入力',''));
+ const knots=query.mode==='parameter'?r.parameter_knots_m:r.distance_knots_m;
+ knots.forEach((v,i)=>$('commonWallKnot').add(new Option(`節点 ${i}: ${v} m`,String(v))));
+ message('共通APIで設計壁面を確認しました。設計・解析結果は変更していません。');
+});

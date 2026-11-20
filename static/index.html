@@ -12,6 +12,16 @@
 </aside>
 <article>
 <section id="meridionalPanel"><div class="titlebar"><h2>子午面・翼列配置</h2><span id="meridionalState">未評価</span></div>
+<details id="commonWallInspector"><summary>共通APIで設計壁面を確認（読取専用）</summary>
+<p class="hint">適用済みの有効な設計子午面全体を確認します。翼列のLE/TEで切り出しません。軸位置と累積距離は異なる値です。内部節点では左側・右側を選択してください。</p>
+<div class="fields"><label>壁面<select id="commonWall"><option value="hub">Hub（設計壁面）</option><option value="casing">Casing（設計壁面）</option></select></label>
+<label>入力の意味<select id="commonWallMode"><option value="parameter">元パラメータ：軸位置 [m]</option><option value="distance">開始点からの累積距離 [m]</option></select></label>
+<label>評価値 [m]（空欄＝始点）<input id="commonWallValue" type="number" step="any"></label>
+<label>節点の片側<select id="commonWallSide"><option value="">自動（内部節点では左右を選択）</option><option value="left">左側</option><option value="right">右側</option></select></label>
+<label>節点から選ぶ<select id="commonWallKnot"><option value="">先に「共通APIで確認」を実行</option></select></label></div>
+<button id="inspectCommonWall">共通APIで確認</button><p id="commonWallState" role="status">未確認</p>
+<div class="tablewrap"><table id="commonWallValues"></table></div>
+<p class="hint">表示する誤差は数値的な推定です。実機・CFDの精度を保証しません。</p></details>
 <p class="hint">x：軸方向、r：半径、単位m。ここでの編集は「子午面・配置を反映」まで未反映です。1Dは基準半径の参考計算で、可変流路の流れ解析は未連成です。</p>
 <div class="fields geometry"><label>設計子午面を翼へ適用<input id="meridionalEnabled" type="checkbox"></label><label>壁面曲線<select id="meridionalInterpolation"><option value="pchip">PCHIP（接線連続）</option><option value="linear">点列を直線で接続</option></select></label><label>編集する壁<select id="meridionalWall"><option value="hub">ハブ</option><option value="casing">ケーシング</option></select></label></div>
 <div class="actions"><button id="addWallPoint">壁面の中間点を追加</button><button id="applyMeridional" class="primary">子午面・配置を反映</button><button id="discardMeridionalDraft">未反映の編集を取り消す</button><button id="resetMeridional">円筒流路・等間隔配置から初期化</button><button id="exportMeridional">子午面CSV出力</button></div>

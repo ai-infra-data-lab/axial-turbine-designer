@@ -79,6 +79,10 @@ def make_server(port=8782, data_path=None):
                 if path=='/api/meridional':raw={**raw,'meridional':data.get('settings')}
                 elif path=='/api/meridional-reset':
                     raw=dict(raw);raw.pop('meridional',None)
+                if path in ('/api/meridional','/api/meridional-reset'):
+                    m = raw.get('meridional')
+                    if m is None or isinstance(m,dict) and m.get('enabled') is False:
+                        raw['analysis'] = {key:value for key,value in raw.get('analysis',{}).items() if key != 'meridional_area'}
                 d = validate(raw)
                 si, ri = data.get('stage_index',0), data.get('row_index',1)
                 if type(si) is not int or type(ri) is not int or not 0 <= si < len(d['stages']) or ri not in (0,1):

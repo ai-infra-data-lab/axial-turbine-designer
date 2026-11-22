@@ -7,7 +7,7 @@
 <main>
 <aside>
 <section><h2>案件と紐付け</h2><label>案件名<input id="name" maxlength="150"></label><label>設計メモ<textarea id="notes" rows="2"></textarea></label><div class="linkbox" id="linkInfo">単独案件</div><label class="file">管理アプリのJSONを選択<input id="managerFile" type="file" accept=".json,application/json"></label><select id="component" aria-label="関連タービン部品"><option value="">タービン部品を選択</option></select><button id="link">紐付け／参照元を更新</button><button id="unlink">紐付け解除</button><p class="hint">管理アプリから出力したJSONを使います。要求値は自動転記せず、入力元の版を保存します。</p></section>
-<section><h2>非冷却1D 設計条件</h2><label>計算方式<select id="analysisMode"><option value="specified_efficiency">指定出力・段効率（従来方式）</option><option value="row_models">翼列の損失・偏差から出力を予測</option></select></label><div id="conditions" class="fields"></div><div class="fields"><label>入口絶対流れ角 [°]<input id="inletFlowAngle" type="number" step="any"></label><label>粘度（全翼列一定）[Pa s]<input id="gasViscosity" type="number" step="any"></label></div><p id="analysisHelp" class="hint"></p></section>
+<section><h2>非冷却1D 設計条件</h2><label>計算方式<select id="analysisMode"><option value="specified_efficiency">指定出力・段効率（従来方式）</option><option value="row_models">翼列の損失・偏差から出力を予測</option></select></label><label><input id="meridionalArea" type="checkbox">子午面の動翼前後縁面積から軸流速度を求める</label><div id="conditions" class="fields"></div><div class="fields"><label>入口絶対流れ角 [°]<input id="inletFlowAngle" type="number" step="any"></label><label>粘度（全翼列一定）[Pa s]<input id="gasViscosity" type="number" step="any"></label></div><p id="analysisHelp" class="hint"></p></section>
 <section><h2>段構成</h2><div id="stageSettings"></div><button id="addStage">段を追加</button><button id="removeStage">末段を削除</button></section>
 </aside>
 <article>

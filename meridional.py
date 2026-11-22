@@ -151,7 +151,10 @@ def report(d,result=None):
                 comparisons.append({'stage':stage['stage'],'row_id':row['id'],'station':key,'x':x,'area':area,'required_area':required,'relative_difference':area/required-1})
         if any(abs(v['relative_difference'])>.05 for v in comparisons):warnings.append('設計子午面と参考1Dの必要面積に5%超の差があります。')
         if any(not p['hub_radius']<d['conditions']['mean_radius']<p['casing_radius'] for p in samples):warnings.append('基準平均半径が設計流路の外にある区間があります。参考1Dと実形状の対応を見直してください。')
-        warnings.append('1Dは一定の基準半径・軸流速度による参考計算です。設計子午面で流量・流線曲率を解いていません。')
+        if d['analysis'].get('meridional_area'):
+            warnings.append('設計子午面の動翼前後縁面積から軸流速度を求めています。半径方向平衡と翼列損失は連成していません。')
+        else:
+            warnings.append('1Dは一定の基準半径・軸流速度による参考計算です。設計子午面で流量・流線曲率を解いていません。')
     if m['interpolation']=='linear':warnings.append('直線補間の点列接続には角があり、その位置の曲率は評価できません。')
     else:warnings.append('PCHIPは接線連続です。点列の接続位置で曲率が連続する保証はありません。')
     return {'enabled':m['enabled'],'samples':samples,'layout':layout,'comparisons':comparisons,

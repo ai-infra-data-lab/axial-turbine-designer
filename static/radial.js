@@ -3,6 +3,7 @@ let radialCandidateContext=null;
 function clearRadialCandidates(){radialCandidateContext=null;$('radialCandidateResults').replaceChildren();}
 function renderRadialControls(){
  const r=design.radial;$('radialEnabled').checked=r.enabled;$('radialExponent').value=r.exponent;
+ $('radialEnabled').disabled=Boolean(design.analysis.meridional_area);
  $('radialLaw').value=[-1,0,1].includes(r.exponent)?String(r.exponent):'custom';
  $('radialPoints').value=String(r.points);$('radialFlow').value=r.flow_mode;
  $('radialIncidence').value=r.design_incidence;$('radialDeviation').value=r.design_deviation;
@@ -53,7 +54,7 @@ function drawRadialStreamtubes(){const report=radialReport(),c=$('radialStreamtu
  for(const q of [0,.25,.5,.75,1]){path(ctx,stations.map((s,i)=>at(i,interpolateRadial(s.points,'radius',q))),'#168e84',q===0||q===1?2:1);}
  ctx.font='13px sans-serif';ctx.fillStyle='#52697e';ctx.fillText('累積流量 0 / 25 / 50 / 75 / 100% の断面間対応（模式図）',15,20);stations.forEach((s,i)=>ctx.fillText(s.kind==='inlet'?'IN':`${s.stage}${s.kind==='rotor'?'R':'S'}`,at(i,hub)[0]-8,c.height-15));
 }
-async function calculateRadial(){design.radial.enabled=true;$('radialEnabled').checked=true;changed();const seq=epoch;const r=await api('/api/run',payload());if(seq!==epoch)return;result=r;dirty=true;$('status').textContent='計算完了・未保存';renderResults();message(r.radial.status==='computed'?'半径方向の解析が完了しました。':'1D結果を保持しました。径方向解析の不成立理由を確認してください。',r.radial.status!=='computed');}
+async function calculateRadial(){if(design.analysis.meridional_area)throw Error('半径方向解析の前に子午面面積の1D計算を解除してください。');design.radial.enabled=true;$('radialEnabled').checked=true;changed();const seq=epoch;const r=await api('/api/run',payload());if(seq!==epoch)return;result=r;dirty=true;$('status').textContent='計算完了・未保存';renderResults();message(r.radial.status==='computed'?'半径方向の解析が完了しました。':'1D結果を保持しました。径方向解析の不成立理由を確認してください。',r.radial.status!=='computed');}
 $('runRadial').onclick=()=>task(calculateRadial);
 $('radialEnabled').onchange=()=>{design.radial.enabled=$('radialEnabled').checked;changed();};
 $('radialLaw').onchange=()=>{if($('radialLaw').value==='custom')return;design.radial.exponent=Number($('radialLaw').value);$('radialExponent').value=design.radial.exponent;changed();};

@@ -17,6 +17,22 @@ def variable_design():
 
 
 class MeridionalTests(unittest.TestCase):
+    def test_area_mode_uses_geometry_and_continuity(self):
+        from core import new_design, solve
+        design = new_design()
+        design['meridional']['enabled'] = True
+        design['meridional']['casing'][-1][1] += .03
+        design['analysis']['meridional_area'] = True
+        report = solve(design)
+        self.assertEqual(report['analysis_scope'], 'meridional_area_meanline')
+        speeds = []
+        for row in report['stages']:
+            for section in ('inlet','outlet'):
+                self.assertLess(abs(row[section]['mass_residual']), 1e-8)
+                speeds.append(row[section]['axial_velocity'])
+        self.assertNotAlmostEqual(speeds[0],speeds[-1])
+        self.assertTrue(all(abs(row['relative_difference']) < 1e-9 for row in report['meridional']['comparisons']))
+
     def test_straight_curve_derivatives_area_and_height(self):
         curve=Curve([[0,.2],[.4,.24]])
         for x in (0,.1,.2,.4):

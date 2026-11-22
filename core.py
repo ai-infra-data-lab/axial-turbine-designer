@@ -173,6 +173,13 @@ def validate(raw):
     if 'meridional' not in d:d['meridional']=meridional.defaults(d)
     meridional.validate(d)
     validate_settings(d)
+    area_mode = d['analysis'].get('meridional_area', False)
+    if type(area_mode) is not bool:
+        raise ValueError('子午面面積の使用設定が不正です。')
+    if area_mode and (not d['meridional']['enabled'] or d['analysis']['mode'] != 'specified_efficiency'):
+        raise ValueError('子午面面積を使うには子午面を有効にし、指定段効率モードを選んでください。')
+    if area_mode and d['radial']['enabled']:
+        raise ValueError('子午面面積の1D計算と従来の半径方向解析は個別に実行してください。')
     validate_radial_settings(d['radial'])
     digest(d)
     return d
@@ -248,6 +255,31 @@ def geometry(d, stage_index=0, row_index=1):
             'input_hash':digest(d),'meridional_hash':meridional_geometry_hash(d),'section_reports':reports,'pressure_side':row.get('pressure_side','unspecified'),
             'notice': '圧力面・負圧面は設計上の想定です。翼間隙間は折線近似の幾何指標で、有効スロートではありません。CAD面の品質保証ではありません。'}
 
+def subsonic_axial_velocity(mass, area, tt, pt, ct, cp, gamma):
+    """Find the lower-velocity branch of the prescribed-swirl continuity equation."""
+    gas_r = cp*(gamma-1)/gamma
+    available = tt-ct**2/(2*cp)
+    if available <= 0:
+        raise ValueError('旋回速度に対して全温が不足しています。')
+    limit = math.sqrt(2*gamma*gas_r*available/(gamma+1))
+
+    def flux(ca):
+        ts = available-ca**2/(2*cp)
+        ps = pt*(ts/tt)**(gamma/(gamma-1))
+        return area*ps*ca/(gas_r*ts)
+
+    if mass >= flux(limit):
+        raise ValueError('設計流路面積では指定流量に対応する亜音速解がありません。')
+    low, high = 0., limit
+    for _ in range(56):
+        mid = (low+high)/2
+        if flux(mid) < mass:
+            low = mid
+        else:
+            high = mid
+    return (low+high)/2
+
+
 def solve_meanline(raw):
     d = validate(raw)
     if d['analysis']['mode']=='row_models':
@@ -268,15 +300,29 @@ def solve_meanline(raw):
     c = d['conditions']
     cp, g = c['cp'], c['gamma']
     gas_r = cp*(g-1)/g
-    u = c['rpm']*2*math.pi/60*c['mean_radius']
-    ca, mass = c['axial_velocity'], c['mass_flow']
+    omega = c['rpm']*math.tau/60
+    mass = c['mass_flow']
+    use_area = d['analysis'].get('meridional_area', False)
+    local_area = {}
+    if use_area:
+        hub, casing = meridional.curves(d)
+        for row in meridional.report(d)['layout']:
+            if row['kind'] != 'rotor':
+                continue
+            radii = [(hub.jet(row[key])[0], casing.jet(row[key])[0]) for key in ('reference_le','reference_te')]
+            local_area[row['stage']] = [(math.pi*(outer**2-inner**2), (inner+outer)/2) for inner,outer in radii]
     total_work = c['power']/mass
     total_weight = sum(s['weight'] for s in d['stages'])
     t0, p0 = c['inlet_temperature'], c['inlet_pressure']
-    result, warnings = [], ['指定した段効率・定比熱の非冷却モデルです。実験損失相関・チョーク流量解法は未実装です。',
+    scope_warning = ('指定した段効率・定比熱の非冷却モデルです。' if use_area
+                     else '指定した段効率・定比熱の非冷却モデルです。実験損失相関・チョーク流量解法は未実装です。')
+    result, warnings = [], [scope_warning,
                              '翼形状は独立した形状案です。形状変更による損失・効率の変化は本計算に反映されません。']
     for i, stage in enumerate(d['stages']):
         dh = total_work*stage['weight']/total_weight
+        sections = local_area.get(i+1)
+        mean_radius = sum(radius for _,radius in sections)/2 if use_area else c['mean_radius']
+        u = omega*mean_radius
         r = stage['reaction']
         ct1, ct2 = u*(1-r)+dh/(2*u), u*(1-r)-dh/(2*u)
         tin, pin = t0, p0
@@ -285,31 +331,41 @@ def solve_meanline(raw):
             raise ValueError(f'第{i+1}段: 要求仕事が過大で出口圧力を計算できません。')
         t0 = tin-dh/cp
         p0 = pin*factor**(g/(g-1))
-        def state(tt, pt, ct):
+        def state(tt, pt, ct, section=None):
+            ca = c['axial_velocity']
+            radius = c['mean_radius']
+            if section:
+                area, radius = section
+                try:
+                    ca = subsonic_axial_velocity(mass, area, tt, pt, ct, cp, g)
+                except ValueError as exc:
+                    raise ValueError(f'第{i+1}段: {exc}') from exc
             speed2 = ca*ca+ct*ct
             ts = tt-speed2/(2*cp)
             if ts <= 0:
                 raise ValueError(f'第{i+1}段: 静温が0 K以下です。回転数・負荷・軸流速度を見直してください。')
             ps = pt*(ts/tt)**(g/(g-1))
             rho = ps/(gas_r*ts)
-            area = mass/(rho*ca)
-            height = area/(2*math.pi*c['mean_radius'])
+            if section is None:
+                area = mass/(rho*ca)
+            height = area/(2*math.pi*radius)
             return {'temperature': ts, 'pressure': ps, 'mach': math.sqrt(speed2/(g*gas_r*ts)),
                     'relative_mach': math.hypot(ca,ct-u)/math.sqrt(g*gas_r*ts), 'area': area, 'height': height,
-                    'mass_residual': rho*ca*area-mass}
-        a, b = state(tin,pin,ct1), state(t0,p0,ct2)
+                    'mass_residual': rho*ca*area-mass, **({'axial_velocity':ca} if use_area else {})}
+        a, b = state(tin,pin,ct1,sections[0] if use_area else None), state(t0,p0,ct2,sections[1] if use_area else None)
+        ca1, ca2 = (a['axial_velocity'], b['axial_velocity']) if use_area else (c['axial_velocity'], c['axial_velocity'])
         for label, state_ in [('動翼入口', a), ('動翼出口', b)]:
             if max(state_['mach'],state_['relative_mach']) >= 1:
                 warnings.append(f'第{i+1}段 {label}: Mach数が1以上。チョーク・衝撃波の詳細解析が必要です。')
-            if state_['height'] >= 2*c['mean_radius']:
+            if not use_area and state_['height'] >= 2*c['mean_radius']:
                 raise ValueError(f'第{i+1}段: 必要流路高さが直径以上です。平均半径・流量・速度を見直してください。')
         fixed_area = math.pi*(d['geometry']['tip_radius']**2-d['geometry']['hub_radius']**2)
-        if abs(fixed_area/b['area']-1) > .05:
+        if not use_area and abs(fixed_area/b['area']-1) > .05:
             warnings.append(f'第{i+1}段出口: 指定形状の環状面積と流量から求めた必要面積が5%以上異なります。')
-        result.append({'stage_id': stage['id'], 'stage': i+1, 'work': dh, 'u': u, 'phi': ca/u, 'psi': dh/u**2,
+        result.append({'stage_id': stage['id'], 'stage': i+1, 'work': dh, 'u': u, 'phi': ca1/u, 'psi': dh/u**2,
                        'reaction': r, 'ct1': ct1, 'ct2': ct2,
-                       'alpha1': math.degrees(math.atan2(ct1,ca)), 'alpha2': math.degrees(math.atan2(ct2,ca)),
-                       'beta1': math.degrees(math.atan2(ct1-u,ca)), 'beta2': math.degrees(math.atan2(ct2-u,ca)),
+                       'alpha1': math.degrees(math.atan2(ct1,ca1)), 'alpha2': math.degrees(math.atan2(ct2,ca2)),
+                       'beta1': math.degrees(math.atan2(ct1-u,ca1)), 'beta2': math.degrees(math.atan2(ct2-u,ca2)),
                        't0_in': tin, 'p0_in': pin, 't0_out': t0, 'p0_out': p0, 'inlet': a, 'outlet': b,
                        'euler_residual': u*(ct1-ct2)-dh, 'energy_residual': cp*(tin-t0)-dh})
     efficiency = total_work/(cp*c['inlet_temperature']*(1-(p0/c['inlet_pressure'])**((g-1)/g)))
@@ -326,7 +382,7 @@ def solve(raw):
     d=result['input_snapshot']
     if d['meridional']['enabled']:
         result['meridional']={**meridional.report(d,result),'input_hash':result['input_hash'],'geometry_hash':meridional_geometry_hash(d)}
-        result['analysis_scope']='reference_meanline_only'
+        result['analysis_scope']='meridional_area_meanline' if d['analysis'].get('meridional_area') else 'reference_meanline_only'
         result['warnings']=[w.replace('指定形状の環状面積','基準円筒の環状面積').replace('指定形状の面積','基準円筒の面積') for w in result['warnings']]
         result['warnings']+=result['meridional']['warnings']
     if d['radial']['enabled']:

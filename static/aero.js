@@ -1,10 +1,14 @@
 'use strict';
 function renderAnalysisControls(){
  const prediction=design.analysis.mode==='row_models';$('analysisMode').value=design.analysis.mode;
+ const area=$('meridionalArea');
+ area.checked=Boolean(design.analysis.meridional_area);
+ area.disabled=prediction||!design.meridional.enabled;
  $('gasViscosity').value=design.analysis.viscosity;$('inletFlowAngle').value=design.analysis.inlet_angle;
  $('gasViscosity').disabled=!prediction;$('inletFlowAngle').disabled=!prediction;
  const keys=Object.keys(conditionLabels),inputs=$('conditions').querySelectorAll('input');
  inputs[keys.indexOf('stage_efficiency')].disabled=prediction;
+ inputs[keys.indexOf('axial_velocity')].disabled=area.checked;
  $('stageSettings').querySelectorAll('input').forEach(input=>input.disabled=prediction);
  $('analysisHelp').textContent=prediction?'翼列モデルでは、入力した金属角・スロート比と損失から出力を予測します。要求出力は比較目標、段効率・反動度・仕事配分比は使用しません。一定軸流速度から必要面積を逆算する予備解析です。':'従来の指定出力・段効率方式です。静翼を全圧損失なしとし、段損失を動翼側に集約します。下の翼列モデル設定は使用しません。';
  renderAeroRow();
@@ -30,7 +34,8 @@ function renderAeroResults(){clearAeroResults();if(result?.analysis_mode!=='row_
  const head=document.createElement('tr');columns.forEach(([,name])=>{const th=document.createElement('th');th.textContent=name;head.append(th);});$('rowResults').append(head);
  result.blade_rows.forEach(row=>{const tr=document.createElement('tr');columns.forEach(([key])=>{const td=document.createElement('td');const value=row[key];td.textContent=key==='kind'?(value==='rotor'?'動翼（相対）':'静翼（絶対）'):key==='applicability'?(value==='outside'?'条件外あり':'確認範囲内'):value===null?'未算出':typeof value==='number'?fmt(value,4):value;tr.append(td);});$('rowResults').append(tr);});
 }
-$('analysisMode').onchange=()=>{design.analysis.mode=$('analysisMode').value;changed();renderEditor();};
+$('analysisMode').onchange=()=>{design.analysis.mode=$('analysisMode').value;if(design.analysis.mode==='row_models')delete design.analysis.meridional_area;changed();renderEditor();};
+$('meridionalArea').onchange=()=>{if($('meridionalArea').checked){design.analysis.meridional_area=true;design.radial.enabled=false;}else delete design.analysis.meridional_area;changed();renderEditor();};
 $('gasViscosity').onchange=()=>{design.analysis.viscosity=Number($('gasViscosity').value);changed();};
 $('inletFlowAngle').onchange=()=>{design.analysis.inlet_angle=Number($('inletFlowAngle').value);changed();};
 $('aeroSource').oninput=()=>{active().row.aero.source=$('aeroSource').value;changed();};

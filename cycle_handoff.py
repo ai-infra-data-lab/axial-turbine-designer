@@ -58,25 +58,49 @@ def evaluate(case, setup):
         stations = {'TB-IN':{'flow':{'total_pressure_pa':inlet['total_pressure_pa'],
                                      'total_temperature_k':inlet['total_temperature_k'],
                                      'mass_flow_kg_s':inlet['mass_flow_kg_s']}}}
+        hub, casing = meridional.curves(design)
         for row in report['meridional']['layout']:
             index = row['stage']
             stage = report['stages'][index-1]
             role = 'ROT' if row['kind']=='rotor' else 'NGV'
             for suffix, coordinate, state in (('LE','reference_le',stage['inlet']),
                                               ('TE','reference_te',stage['outlet'])):
+                x = row[coordinate]
+                flow = None
+                if role == 'NGV':
+                    # This meanline model assigns the stage's total-pressure drop
+                    # to the rotor. Across the stator only the velocity changes.
+                    area = math.pi * (casing.jet(x)[0]**2 - hub.jet(x)[0]**2)
+                    tangential = (report['stages'][index-2]['ct2'] if index > 1 else 0.) if suffix == 'LE' else stage['ct1']
+                    tt, pt = stage['t0_in'], stage['p0_in']
+                    try:
+                        axial = subsonic_axial_velocity(cond['mass_flow'], area, tt, pt, tangential, cond['cp'], cond['gamma'])
+                    except ValueError:
+                        pass  # Keep the geometry station available without a valid subsonic state.
+                    else:
+                        ts = tt - (axial**2 + tangential**2)/(2 * cond['cp'])
+                        flow = {'pressure':pt * (ts / tt)**(cond['gamma']/(cond['gamma']-1)),
+                                'temperature':ts, 'total_pressure_pa':pt, 'total_temperature_k':tt,
+                                'area':area, 'axial_velocity':axial, 'tangential_velocity':tangential,
+                                'mass_flow_kg_s':cond['mass_flow']}
                 stations[f'TB-{index:02d}-{role}-{suffix}'] = {
-                    'x_m':row[coordinate], 'flow':state if role=='ROT' else None}
+                    'x_m':x, 'flow':flow}
                 if role == 'ROT':
                     stations[f'TB-{index:02d}-{role}-{suffix}']['flow'] = {
                         **state, 'total_temperature_k':stage['t0_in' if suffix=='LE' else 't0_out'],
-                        'total_pressure_pa':stage['p0_in' if suffix=='LE' else 'p0_out']}
+                        'total_pressure_pa':stage['p0_in' if suffix=='LE' else 'p0_out'],
+                        'mass_flow_kg_s':cond['mass_flow']}
         stations['TB-EXD-IN'] = {'flow':{'pressure':outlet['pressure'], 'total_pressure_pa':last['p0_out'],
                                         'total_temperature_k':tt, 'area':outlet['area']}}
         stations['TB-OUT'] = stations['TB-EXD-IN']
         stations['TB-EXD-OUT'] = {'flow':{'pressure':ps, 'total_pressure_pa':pt,'total_temperature_k':tt,
                                          'area':area,'axial_velocity':ca}}
         cases[name] = {'design':design,'analysis':report,'stations':stations,
-                       'diffuser_static_recovery_pa':ps-outlet['pressure']}
+                       'diffuser_static_recovery_pa':ps-outlet['pressure'],
+                       'exhaust_diffuser':{'inlet_area_m2':outlet['area'],'outlet_area_m2':area,
+                                           'total_pressure_loss_pa':last['p0_out']-pt,
+                                           'inlet_static_pressure_pa':outlet['pressure'],
+                                           'outlet_static_pressure_pa':ps}}
     if not cases:
         raise ValueError('比較する仕事配分案を指定してください。')
     return {'format':'axial-turbine-cycle-handoff','schema_version':1,'source_cycle':source,'cases':cases}

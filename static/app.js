@@ -58,6 +58,24 @@ $('import').onchange=e=>task(async()=>{const file=e.target.files[0];e.target.val
 $('managerFile').onchange=e=>task(async()=>{manager=null;$('component').replaceChildren(new Option('タービン部品を選択',''));const f=e.target.files[0];e.target.value='';if(!f)return;if(f.size>8*1024*1024)throw Error('8 MB以内のJSONを指定してください。');const b=JSON.parse(await f.text());if(b.format!=='gas-turbine-manager'||b.bundle_version!==1||!b.project?.components)throw Error('設計情報管理の交換JSONを指定してください。');manager=b;b.project.components.filter(c=>c.kind==='turbine').forEach(c=>$('component').add(new Option(c.name,c.id)));message('関連付けるタービン部品を選択してください。数値は自動転記しません。');});
 $('link').onclick=()=>task(async()=>{if(!manager||!$('component').value)throw Error('管理アプリのJSONとタービン部品を選択してください。');const r=await api('/api/link',{bundle:manager,component_id:$('component').value});design.link=r.link;changed();renderLink();message('入力元のスナップショットと版を紐付けました。保存で確定します。');});$('unlink').onclick=()=>{design.link=null;changed();renderLink();};
 $('obj').onclick=()=>task(async()=>{const r=await api('/api/obj',payload());download('axial-blade.obj',r.text,'text/plain');message('選択翼列の単翼形状をOBJ出力しました（単位 m、端面なし）。');});
+$('step').onclick=()=>task(async()=>{
+    if(meridionalDraftDirty)throw Error('子午面・翼列配置を反映してからSTEP出力してください。');
+    const seq=epoch, wallRevision=meridionalDraftRevision;
+    const {si,row}=active();
+    const kind=row.kind==='stator'?'静翼':'動翼';
+    message(`第${si+1}段 ${kind}のSTEPを作成し、再読込しています…`);
+    const response=await fetch('/api/step',{
+        method:'POST',headers:{'Content-Type':'application/json','X-Local-Token':token},
+        body:JSON.stringify(payload())
+    });
+    if(!response.ok)throw Error((await response.json()).error||'STEP出力に失敗しました。');
+    const step=await response.blob();
+    if(seq!==epoch||wallRevision!==meridionalDraftRevision||active().row.id!==row.id)
+        throw Error('出力中に設計が変更されました。変更後の条件で再度出力してください。');
+    const name=`axial-stage-${String(si+1).padStart(2,'0')}-${row.kind}.step`;
+    download(name,step,'model/step');
+    message(`第${si+1}段 ${kind}のSTEPを出力しました。単翼ソリッド、単位mm、再読込検査済みです。`);
+});
 $('rotate').onclick=()=>{viewAngle+=.5;drawMesh();};let dragging=null;$('mesh').onpointerdown=e=>{dragging=[e.clientX,e.clientY];$('mesh').setPointerCapture(e.pointerId);};$('mesh').onpointermove=e=>{if(!dragging)return;viewAngle+=(e.clientX-dragging[0])*.01;viewTilt+=(e.clientY-dragging[1])*.01;dragging=[e.clientX,e.clientY];drawMesh();};$('mesh').onpointerup=()=>dragging=null;$('mesh').onwheel=e=>{e.preventDefault();zoom=Math.max(.3,Math.min(3,zoom*(e.deltaY<0?1.1:.9)));drawMesh();};
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 task(async()=>{const b=await api('/api/bootstrap');token=b.token;design=b.design;renderEditor();await refreshSaved();await preview();dirty=true;$('status').textContent='仮の入力例・未保存';message('入力例を表示しています。条件を設定して保存・計算してください。');});

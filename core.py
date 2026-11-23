@@ -431,6 +431,15 @@ def aero_from_shape(d,stage_index,row_index):
              geometry_binding={'hash':aero_geometry_hash(d,row),'span':span})
     return a
 
+def world_sides(layer):
+    """Return both blade sides in the Cartesian preview frame, in metres."""
+    if 'world_sides' in layer:
+        return layer['world_sides']
+    radius = layer['radius']
+    return [[[x, radius * math.sin(y/radius), radius * math.cos(y/radius)] for x,y in side]
+            for side in layer['sides']]
+
+
 def obj_text(d, stage_index=0, row_index=1):
     mesh = geometry(d,stage_index,row_index)
     lines = ['# Axial turbine blade; SI metres; x=axial, y/z=annulus Cartesian', '# preliminary geometry, not a manufacturing solid']
@@ -438,10 +447,8 @@ def obj_text(d, stage_index=0, row_index=1):
     width = 2*n
     vertices=[]
     for layer in mesh['layers']:
-        radius = layer['radius']
-        local=layer['sides'][0]+list(reversed(layer['sides'][1]))
-        world=layer.get('world_sides')
-        points=world[0]+list(reversed(world[1])) if world else [[x,radius*math.sin(y/radius),radius*math.cos(y/radius)] for x,y in local]
+        side_a, side_b = world_sides(layer)
+        points = side_a + list(reversed(side_b))
         for vertex in points:
             vertices.append(vertex)
             lines.append('v '+' '.join(f'{value:.10g}' for value in vertex))

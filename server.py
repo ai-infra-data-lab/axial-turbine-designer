@@ -4,6 +4,7 @@ import json
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from urllib.parse import urlsplit, parse_qs
 from core import (new_design, validate, solve, geometry, obj_text, link_bundle, VERSION,
                   section_profile, section_metrics, curve_error, convert_section, restore_section,
@@ -15,6 +16,7 @@ from store import Store, Conflict
 from turbomachinery_common import loads as load_common, summary as common_summary
 from common_exchange import export_geometry
 from common_meridional import inspect_wall
+from cad_export import CadUnavailable, export_step
 
 ROOT = Path(__file__).resolve().parent
 LIMIT = 8*1024*1024
@@ -22,16 +24,19 @@ LIMIT = 8*1024*1024
 def make_server(port=8782, data_path=None):
     store = Store(data_path or ROOT/'data'/'designs.sqlite3')
     token = secrets.token_urlsafe(32)
+    cad_lock = Lock()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass
 
-        def send(self, value, code=200, content_type='application/json; charset=utf-8'):
+        def send(self, value, code=200, content_type='application/json; charset=utf-8', filename=None):
             body = value if isinstance(value, bytes) else json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
             self.send_response(code)
             self.send_header('Content-Type',content_type)
             self.send_header('Content-Length',str(len(body)))
             self.send_header('Cache-Control','no-store')
+            if filename is not None:
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
             self.end_headers()
@@ -149,9 +154,20 @@ def make_server(port=8782, data_path=None):
                     return self.send(store.save(d,data['revision'],solve(d) if data.get('include_result') else None))
                 if path == '/api/obj':
                     return self.send({'text':obj_text(d,si,ri)})
+                if path == '/api/step':
+                    if not cad_lock.acquire(blocking=False):
+                        raise Conflict('別のSTEP出力を実行中です。完了してから実行してください。')
+                    try:
+                        step = export_step(d,si,ri)
+                    finally:
+                        cad_lock.release()
+                    kind = d['stages'][si]['rows'][ri]['kind']
+                    return self.send(step, content_type='model/step', filename=f'axial-stage-{si+1:02d}-{kind}.step')
                 raise LookupError('APIがありません。')
             except Conflict as e:
                 self.send({'error':str(e)},409)
+            except CadUnavailable as e:
+                self.send({'error':str(e)},503)
             except PermissionError as e:
                 self.send({'error':str(e)},403)
             except LookupError as e:

@@ -16,7 +16,7 @@ from store import Store, Conflict
 from turbomachinery_common import loads as load_common, summary as common_summary
 from common_exchange import export_geometry
 from common_meridional import inspect_wall
-from cad_export import CadUnavailable, export_step
+from cad_export import CadUnavailable, export_step, fillet_options
 
 ROOT = Path(__file__).resolve().parent
 LIMIT = 8*1024*1024
@@ -155,14 +155,16 @@ def make_server(port=8782, data_path=None):
                 if path == '/api/obj':
                     return self.send({'text':obj_text(d,si,ri)})
                 if path == '/api/step':
+                    kind = d['stages'][si]['rows'][ri]['kind']
+                    fillets = fillet_options(data.get('fillets'), kind)
                     if not cad_lock.acquire(blocking=False):
                         raise Conflict('別のSTEP出力を実行中です。完了してから実行してください。')
                     try:
-                        step = export_step(d,si,ri)
+                        step = export_step(d, si, ri, fillets=fillets)
                     finally:
                         cad_lock.release()
-                    kind = d['stages'][si]['rows'][ri]['kind']
-                    return self.send(step, content_type='model/step', filename=f'axial-stage-{si+1:02d}-{kind}.step')
+                    suffix = '-fillet' if fillets else ''
+                    return self.send(step, content_type='model/step', filename=f'axial-stage-{si+1:02d}-{kind}{suffix}.step')
                 raise LookupError('APIがありません。')
             except Conflict as e:
                 self.send({'error':str(e)},409)

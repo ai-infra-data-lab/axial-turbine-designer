@@ -33,7 +33,17 @@
 <label>表示指標<select id="meridionalMetric"><option value="area">流路面積 [m²]</option><option value="height">翼高さ [m]</option><option value="mean_radius">平均半径 [m]</option><option value="hub_angle">ハブ壁面傾き [°]</option><option value="casing_angle">ケーシング壁面傾き [°]</option><option value="hub_curvature">ハブ曲率 [1/m]</option><option value="casing_curvature">ケーシング曲率 [1/m]</option></select></label>
 <canvas id="meridionalMetricPlot" width="1100" height="220" aria-label="子午面の面積・壁面指標"></canvas><details><summary>子午面の数値</summary><div class="tablewrap radialTable"><table id="meridionalStations"></table></div></details>
 <h3>動翼LE/TEでの参考1D必要面積との比較</h3><div class="tablewrap"><table id="meridionalComparisons"></table></div><div id="meridionalWarnings"></div></section>
-<section><div class="titlebar"><h2>翼形状</h2><select id="row" aria-label="編集する翼列"></select></div><p class="hint">中心線＋法線方向の厚み分布。金属角は軸方向基準。1Dの流れ角とは独立した指定です。</p><div class="fields geometry"><label>基準円筒のハブ半径 [m]<input id="hub" type="number" step="0.001"></label><label>基準円筒のチップ半径 [m]<input id="tip" type="number" step="0.001"></label><label>翼枚数<input id="bladeCount" type="number" step="1"></label></div><div class="tablewrap"><table id="sections"></table></div><div class="actions"><button id="addSection">中間断面を追加</button><button id="preview" class="primary">形状を更新</button><button id="obj">選択翼列のOBJ出力</button><button id="step">選択翼列のSTEP出力</button></div><p class="hint">STEPは選択した静翼または動翼1枚の閉ソリッドです。長さ単位はmmです。</p><p class="hint">断面の順序は自動整列。0%・100%は必須。積み重ね基準は前縁中心です。</p></section>
+<section><div class="titlebar"><h2>翼形状</h2><select id="row" aria-label="編集する翼列"></select></div><p class="hint">中心線＋法線方向の厚み分布。金属角は軸方向基準。1Dの流れ角とは独立した指定です。</p><div class="fields geometry"><label>基準円筒のハブ半径 [m]<input id="hub" type="number" step="0.001"></label><label>基準円筒のチップ半径 [m]<input id="tip" type="number" step="0.001"></label><label>翼枚数<input id="bladeCount" type="number" step="1"></label></div><div class="tablewrap"><table id="sections"></table></div><div class="actions"><button id="addSection">中間断面を追加</button><button id="preview" class="primary">形状を更新</button><button id="obj">選択翼列のOBJ出力</button></div><p class="hint">断面の順序は自動整列。0%・100%は必須。積み重ね基準は前縁中心です。</p>
+<h3>STEP出力</h3>
+<p class="hint" id="stepFilletHelp">半径を入力した側で、翼1枚と接合部を結合し、フィレットを作成します。空欄の側は省略します。</p>
+<div class="fields" id="stepFilletFields" aria-describedby="stepFilletHelp">
+<label>ハブ側フィレット半径 [mm]<input id="stepHubRadius" type="number" min="0.001" max="30000" step="any"></label>
+<label>ハブ側接合部の厚さ [mm]<input id="stepHubWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
+<label id="stepTipRadiusField" hidden>チップ側フィレット半径 [mm]<input id="stepTipRadius" type="number" min="0.001" max="30000" step="any"></label>
+<label id="stepTipWallField" hidden>チップ側接合部の厚さ [mm]<input id="stepTipWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
+</div>
+<div class="actions"><button id="step">選択翼列のSTEP出力</button></div>
+</section>
 <section><h2>選択翼列の1D 損失・流出角偏差</h2><p class="hint">静翼は絶対系、動翼は相対系の角度・損失です。入力は翼列ごとに保存します。形状からの転記は明示操作で行います。</p><div class="actions"><button id="aeroFromShape">平均半径の形状から金属角・コードを転記</button></div><div id="aeroFields" class="fields geometry"></div><label>翼列モデル入力の出典・備考<textarea id="aeroSource" rows="2"></textarea></label><p id="aeroBinding" class="hint"></p><p class="hint">スロート比は A_throat / A_exit。等翼高さの直線翼列なら opening/pitch に対応します。形状画面の最小隙間を自動代用しません。Soderberg型は2016年掲載式の簡易相関で、KOモデルや入射・翼端漏れ・冷却損失を含みません。</p></section>
 <section id="curvePanel"><div class="titlebar"><h2>断面曲線エディター</h2><select id="editSection" aria-label="編集するスパン断面"></select></div>
 <div class="fields geometry"><label>現在の方式<output id="editMode"></output></label><label>圧力面の想定<select id="pressureSide"><option value="unspecified">未指定（面A / 面B）</option><option value="A">面Aを圧力面とする</option><option value="B">面Bを圧力面とする</option></select></label><label>近似の制御点数<select id="controlCount"><option value="17">17点 / 面</option><option value="25">25点 / 面</option></select></label></div>
@@ -62,6 +72,6 @@
 <div class="tablewrap radialTable"><table id="radialResults"></table></div><div id="radialStageSummary" class="hint"></div><div id="radialWarnings"></div>
 <div class="tablewrap"><table id="radialCandidateResults"></table></div><p class="hint">金属角候補は指定入射角・偏差を仮定した参考値です。表の変更量を確認して反映ボタンを押すと、選択翼列の基本断面の入口・出口角を更新します。取付角・厚み等は維持し、曲線方式は対象外です。±75°外の基本断面がある場合は全体を反映しません。各断面の「直前の変換前へ戻す」で復元できます（履歴は最大8件）。</p>
 </section>
-<footer>概念設計用。翼面圧力分布・流線曲率を含む2D解析・チョーク流量・冷却・強度・寿命は対象外です。STEPは単翼ソリッドの成立と再読込を検査します。入力例は実機データではありません。</footer>
+<footer>概念設計用。翼面圧力分布・流線曲率を含む2D解析・チョーク流量・冷却・強度・寿命は対象外です。STEPは閉ソリッドの成立と再読込を検査します。入力例は実機データではありません。</footer>
 </article>
 </main><script src="/app.js"></script><script src="/editor.js"></script><script src="/aero.js"></script><script src="/radial.js"></script><script src="/edges.js"></script><script src="/meridional.js"></script></body></html>

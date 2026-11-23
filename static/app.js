@@ -21,6 +21,7 @@ function renderEditor(){
 function renderLink(){const l=design.link;$('linkInfo').textContent=l?`${l.project_name} / ${l.component_name} / 入力元 revision ${l.source_revision}\n参照元の現在状態はJSON再読込で確認`:'単独案件（管理アプリとの紐付けなし）';}
 function renderSections(){
  const row=active().row;$('bladeCount').value=row.blade_count;const table=$('sections');table.replaceChildren();const head=document.createElement('tr');sectionFields.forEach(([,name])=>{const th=document.createElement('th');th.textContent=name;head.append(th);});head.append(document.createElement('th'));table.append(head);
+ renderStepFillets();
  row.sections.forEach(s=>{const tr=document.createElement('tr');sectionFields.forEach(([k])=>{const td=document.createElement('td');const inp=numberInput(s[k],v=>{s[k]=v;});inp.setAttribute('aria-label',`${s.span*100}% ${k}`);if(k==='span'&&(s.span===0||s.span===1))inp.disabled=true;if(s.profile&&['inlet_angle','outlet_angle','stagger','thickness','peak','trailing'].includes(k))inp.disabled=true;if(s.profile?.mode==='direct'&&k==='chord')inp.disabled=true;td.append(inp);tr.append(td);});const td=document.createElement('td');if(s.span!==0&&s.span!==1){const b=document.createElement('button');b.textContent='削除';b.onclick=()=>{row.sections=row.sections.filter(x=>x.id!==s.id);changed();renderSections();};td.append(b);}tr.append(td);table.append(tr);});
  if(typeof renderCurveEditor==='function')renderCurveEditor();if(typeof renderAeroRow==='function')renderAeroRow();if(typeof renderMeridionalTarget==='function')renderMeridionalTarget();
 }
@@ -45,7 +46,7 @@ async function refreshSaved(){const b=await api('/api/bootstrap');$('saved').rep
 async function loadEnvelope(env){if(typeof clearRadialResults==='function')clearRadialResults();if(typeof clearMeridionalReport==='function')clearMeridionalReport();if(typeof clearAeroResults==='function')clearAeroResults();if(typeof resetCurveContext==='function')resetCurveContext();design=env.design;revision=env.revision;result=env.result;dirty=false;epoch++;renderEditor();$('status').textContent=dirty?'配置を更新・未保存':`保存済み revision ${revision}`;$('resultState').textContent=result?'計算完了':'未実行';if(!result){$('summary').replaceChildren();$('results').replaceChildren();$('warnings').replaceChildren();for(const id of ['triangles','meridional'])$(id).getContext('2d').clearRect(0,0,$(id).width,$(id).height);}await preview();renderResults();}
 $('name').oninput=()=>{design.name=$('name').value;changed();};$('notes').oninput=()=>{design.notes=$('notes').value;changed();};
 $('hub').onchange=()=>{design.geometry.hub_radius=Number($('hub').value);changed();};$('tip').onchange=()=>{design.geometry.tip_radius=Number($('tip').value);changed();};$('bladeCount').onchange=()=>{active().row.blade_count=Number($('bladeCount').value);changed();};
-$('row').onchange=()=>task(async()=>{epoch++;clearRadialCandidates();renderSections();await preview();drawTriangles();});
+$('row').onchange=()=>{renderStepFillets();task(async()=>{epoch++;clearRadialCandidates();renderSections();await preview();drawTriangles();});};
 $('addStage').onclick=()=>{if(design.stages.length>=12)return message('最大12段です。',true);const s=structuredClone(design.stages.at(-1));s.id=crypto.randomUUID();s.rows.forEach(r=>{r.id=crypto.randomUUID();r.sections.forEach(x=>x.id=crypto.randomUUID());});design.stages.push(s);changed();renderEditor();};
 $('removeStage').onclick=()=>{if(design.stages.length<=1)return;design.stages.pop();changed();renderEditor();};
 $('addSection').onclick=()=>task(async()=>{const r=active().row;if(r.sections.length>=21)throw Error('最大21断面です。');r.sections.sort((a,b)=>a.span-b.span);let index=0,gap=0;r.sections.slice(1).forEach((s,i)=>{const g=s.span-r.sections[i].span;if(g>gap){gap=g;index=i;}});const span=(r.sections[index].span+r.sections[index+1].span)/2;const response=await api('/api/add-section',{...payload(),span});r.sections.splice(index+1,0,response.section);changed();renderSections();await preview();});
@@ -58,23 +59,60 @@ $('import').onchange=e=>task(async()=>{const file=e.target.files[0];e.target.val
 $('managerFile').onchange=e=>task(async()=>{manager=null;$('component').replaceChildren(new Option('タービン部品を選択',''));const f=e.target.files[0];e.target.value='';if(!f)return;if(f.size>8*1024*1024)throw Error('8 MB以内のJSONを指定してください。');const b=JSON.parse(await f.text());if(b.format!=='gas-turbine-manager'||b.bundle_version!==1||!b.project?.components)throw Error('設計情報管理の交換JSONを指定してください。');manager=b;b.project.components.filter(c=>c.kind==='turbine').forEach(c=>$('component').add(new Option(c.name,c.id)));message('関連付けるタービン部品を選択してください。数値は自動転記しません。');});
 $('link').onclick=()=>task(async()=>{if(!manager||!$('component').value)throw Error('管理アプリのJSONとタービン部品を選択してください。');const r=await api('/api/link',{bundle:manager,component_id:$('component').value});design.link=r.link;changed();renderLink();message('入力元のスナップショットと版を紐付けました。保存で確定します。');});$('unlink').onclick=()=>{design.link=null;changed();renderLink();};
 $('obj').onclick=()=>task(async()=>{const r=await api('/api/obj',payload());download('axial-blade.obj',r.text,'text/plain');message('選択翼列の単翼形状をOBJ出力しました（単位 m、端面なし）。');});
+const stepFilletInputs=['stepHubRadius','stepHubWall','stepTipRadius','stepTipWall'];
+const stepFilletsByRow=new Map();
+let stepFilletRevision=0;
+for(const id of stepFilletInputs){
+    $(id).oninput=()=>{
+        const rowId=active().row.id;
+        const values=stepFilletsByRow.get(rowId)||{};
+        values[id]=$(id).value;
+        stepFilletsByRow.set(rowId,values);
+        stepFilletRevision++;
+    };
+}
+function renderStepFillets(){
+    const row=active().row;
+    const values=stepFilletsByRow.get(row.id)||{};
+    for(const id of stepFilletInputs)$(id).value=values[id]??(id.endsWith('Wall')?'3':'');
+    $('stepTipRadiusField').hidden=row.kind==='rotor';
+    $('stepTipWallField').hidden=row.kind==='rotor';
+}
+function selectedStepFillets(kind){
+    const sides=kind==='rotor'?[['hub','Hub']]:[['hub','Hub'],['tip','Tip']];
+    const fillets={};
+    for(const [side,key] of sides){
+        const radius=$('step'+key+'Radius'),wall=$('step'+key+'Wall');
+        if(radius.validity.badInput)throw Error('フィレット半径を数値で指定してください。');
+        if(radius.value==='')continue;
+        if(!radius.reportValidity()||!wall.reportValidity()||wall.value===''){
+            throw Error('フィレット半径と接合部の厚さを0.001～30000 mmで指定してください。');
+        }
+        fillets[side]={radius_mm:radius.valueAsNumber,wall_mm:wall.valueAsNumber};
+    }
+    return fillets;
+}
 $('step').onclick=()=>task(async()=>{
     if(meridionalDraftDirty)throw Error('子午面・翼列配置を反映してからSTEP出力してください。');
-    const seq=epoch, wallRevision=meridionalDraftRevision;
+    const seq=epoch, wallRevision=meridionalDraftRevision, filletRevision=stepFilletRevision;
     const {si,row}=active();
     const kind=row.kind==='stator'?'静翼':'動翼';
+    const fillets=selectedStepFillets(row.kind);
     message(`第${si+1}段 ${kind}のSTEPを作成し、再読込しています…`);
     const response=await fetch('/api/step',{
         method:'POST',headers:{'Content-Type':'application/json','X-Local-Token':token},
-        body:JSON.stringify(payload())
+        body:JSON.stringify({...payload(),fillets})
     });
     if(!response.ok)throw Error((await response.json()).error||'STEP出力に失敗しました。');
     const step=await response.blob();
-    if(seq!==epoch||wallRevision!==meridionalDraftRevision||active().row.id!==row.id)
+    if(seq!==epoch||wallRevision!==meridionalDraftRevision||filletRevision!==stepFilletRevision||active().row.id!==row.id)
         throw Error('出力中に設計が変更されました。変更後の条件で再度出力してください。');
-    const name=`axial-stage-${String(si+1).padStart(2,'0')}-${row.kind}.step`;
+    const name=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
+    if(!name)throw Error('STEPのファイル名を取得できませんでした。');
     download(name,step,'model/step');
-    message(`第${si+1}段 ${kind}のSTEPを出力しました。単翼ソリッド、単位mm、再読込検査済みです。`);
+    const sides=Object.keys(fillets).map(side=>side==='hub'?'ハブ側':'チップ側');
+    const detail=sides.length?`（${sides.join('・')}フィレット付き）`:'';
+    message(`第${si+1}段 ${kind}のSTEP${detail}を出力しました。単位mm、再読込検査済みです。`);
 });
 $('rotate').onclick=()=>{viewAngle+=.5;drawMesh();};let dragging=null;$('mesh').onpointerdown=e=>{dragging=[e.clientX,e.clientY];$('mesh').setPointerCapture(e.pointerId);};$('mesh').onpointermove=e=>{if(!dragging)return;viewAngle+=(e.clientX-dragging[0])*.01;viewTilt+=(e.clientY-dragging[1])*.01;dragging=[e.clientX,e.clientY];drawMesh();};$('mesh').onpointerup=()=>dragging=null;$('mesh').onwheel=e=>{e.preventDefault();zoom=Math.max(.3,Math.min(3,zoom*(e.deltaY<0?1.1:.9)));drawMesh();};
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});

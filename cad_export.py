@@ -1,6 +1,7 @@
 """Keep the optional native CAD runtime outside the web server process."""
 from importlib.util import find_spec
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -8,6 +9,7 @@ import sys
 from tempfile import TemporaryDirectory
 
 from core import geometry, world_sides
+import meridional
 
 
 ROOT = Path(__file__).resolve().parent
@@ -36,21 +38,86 @@ def cad_python():
     raise CadUnavailable('CAD環境がありません。READMEのSTEP出力に従って、CAD用のPython環境を設定してください。')
 
 
-def blade_payload(design, stage_index, row_index):
+def fillet_options(raw, kind):
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or raw.keys() - {'hub', 'tip'}:
+        raise ValueError('フィレットはハブ側とチップ側を指定してください。')
+    if kind == 'rotor' and 'tip' in raw:
+        raise ValueError('動翼のフィレットはハブ側に指定してください。')
+    for side, values in raw.items():
+        for key, label in (('radius_mm', '半径'), ('wall_mm', '接合部の厚さ')):
+            value = values.get(key) if isinstance(values, dict) else None
+            if type(value) not in (int, float) or not 0.001 <= value <= 30000:
+                side_label = 'ハブ側' if side == 'hub' else 'チップ側'
+                raise ValueError(f'{side_label}の{label}は0.001～30000 mmで指定してください。')
+    return {side: raw[side] for side in ('hub', 'tip') if side in raw}
+
+
+def wall_profile(design, side, end_points, radius, thickness):
+    xs = [p[0] / 1000 for face in end_points for p in face]
+    margin = max(3 * radius + 1, 3) / 1000
+    lower, upper = min(xs) - margin, max(xs) + margin
+    if design['meridional']['enabled']:
+        wall = meridional.curves(design)[0 if side == 'hub' else 1]
+        lower, upper = max(lower, wall.x[0]), min(upper, wall.x[-1])
+        if min(xs) - lower <= radius / 1000 or upper - max(xs) <= radius / 1000:
+            raise ValueError('フィレットを作る軸方向の余裕が足りません。子午面の定義範囲を広げてください。')
+    else:
+        r = design['geometry']['hub_radius' if side == 'hub' else 'tip_radius']
+        wall = meridional.Curve([(lower, r), (upper, r)])
+    knots = [lower, *(x for x in wall.x if lower < x < upper), upper]
+    segments = []
+    for a, b in zip(knots, knots[1:]):
+        ra, da, _, _ = wall.jet(a)
+        rb, db, _, _ = wall.jet(b, left=True)
+        dx = (b - a) / 3
+        poles = [(a, ra), (b, rb)]
+        if not (math.isclose(da, (rb - ra) / (b - a), abs_tol=1e-10)
+                and math.isclose(db, da, abs_tol=1e-10)):
+            poles[1:1] = [(a + dx, ra + da * dx), (b - dx, rb - db * dx)]
+        segments.append([[x * 1000, r * 1000] for x, r in poles])
+    if side == 'hub' and thickness >= min(segment[i][1] for segment in segments for i in (0, -1)):
+        raise ValueError('ハブ側接合部の厚さは接合位置のハブ半径より小さくしてください。')
+    return segments
+
+
+def blade_payload(design, stage_index, row_index, fillets=None):
+    row = design['stages'][stage_index]['rows'][row_index]
+    options = fillet_options(fillets, row['kind'])
     blade = geometry(design, stage_index, row_index)
     for warning in blade['warnings']:
         if '翼断面に自己交差' in warning:
             raise ValueError(f'{warning} 断面を修正してからSTEP出力してください。')
-    return {
+    payload = {
         'spans': [layer['span'] for layer in blade['layers']],
         'points_mm': [[[[value * 1000 for value in point] for point in side] for side in world_sides(layer)]
                       for layer in blade['layers']],
     }
+    if options:
+        sections = row['sections']
+        payload['arc_length_samples'] = any(s.get('profile') or s.get('edges', {}).get('enabled') for s in sections)
+        payload['smooth_nose'] = all((s.get('profile') or {}).get('lock_nose_tangent', True) for s in sections)
+        payload['smooth_tail'] = all(s.get('edges', {}).get('enabled') and s['edges']['te_type'] != 'flat'
+                                     for s in sections)
+        layers = blade['layers']
+        height = (layers[-1]['radius'] - layers[0]['radius']) * 1000
+        payload['fillets'] = {
+            side: {
+                'radius_mm': values['radius_mm'],
+                'wall_mm': values['wall_mm'],
+                'wall_profile': wall_profile(design, side, payload['points_mm'][0 if side == 'hub' else -1],
+                                             values['radius_mm'], values['wall_mm']),
+                'overlap_span': min(values['wall_mm'] * .4, 1.) / height,
+            }
+            for side, values in options.items()
+        }
+    return payload
 
 
-def export_step(design, stage_index, row_index):
+def export_step(design, stage_index, row_index, fillets=None):
+    payload = blade_payload(design, stage_index, row_index, fillets)
     executable = cad_python()
-    payload = blade_payload(design, stage_index, row_index)
     with TemporaryDirectory(prefix='axial-blade-step-') as tmp:
         job = Path(tmp)
         (job/'blade.json').write_text(json.dumps(payload, allow_nan=False), encoding='utf-8')

@@ -70,18 +70,19 @@ def evaluate(case, setup):
                 if role == 'NGV':
                     # This meanline model assigns the stage's total-pressure drop
                     # to the rotor. Across the stator only the velocity changes.
-                    area = math.pi * (casing.jet(x)[0]**2 - hub.jet(x)[0]**2)
+                    stator_area = math.pi * (casing.jet(x)[0]**2 - hub.jet(x)[0]**2)
                     tangential = (report['stages'][index-2]['ct2'] if index > 1 else 0.) if suffix == 'LE' else stage['ct1']
-                    tt, pt = stage['t0_in'], stage['p0_in']
+                    stator_tt, stator_pt = stage['t0_in'], stage['p0_in']
                     try:
-                        axial = subsonic_axial_velocity(cond['mass_flow'], area, tt, pt, tangential, cond['cp'], cond['gamma'])
+                        axial = subsonic_axial_velocity(cond['mass_flow'], stator_area, stator_tt, stator_pt,
+                                                         tangential, cond['cp'], cond['gamma'])
                     except ValueError:
                         pass  # Keep the geometry station available without a valid subsonic state.
                     else:
-                        ts = tt - (axial**2 + tangential**2)/(2 * cond['cp'])
-                        flow = {'pressure':pt * (ts / tt)**(cond['gamma']/(cond['gamma']-1)),
-                                'temperature':ts, 'total_pressure_pa':pt, 'total_temperature_k':tt,
-                                'area':area, 'axial_velocity':axial, 'tangential_velocity':tangential,
+                        ts = stator_tt - (axial**2 + tangential**2)/(2 * cond['cp'])
+                        flow = {'pressure':stator_pt * (ts / stator_tt)**(cond['gamma']/(cond['gamma']-1)),
+                                'temperature':ts, 'total_pressure_pa':stator_pt, 'total_temperature_k':stator_tt,
+                                'area':stator_area, 'axial_velocity':axial, 'tangential_velocity':tangential,
                                 'mass_flow_kg_s':cond['mass_flow']}
                 stations[f'TB-{index:02d}-{role}-{suffix}'] = {
                     'x_m':x, 'flow':flow}

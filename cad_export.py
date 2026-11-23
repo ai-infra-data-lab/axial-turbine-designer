@@ -46,11 +46,18 @@ def fillet_options(raw, kind):
     if kind == 'rotor' and 'tip' in raw:
         raise ValueError('動翼のフィレットはハブ側に指定してください。')
     for side, values in raw.items():
+        side_label = 'ハブ側' if side == 'hub' else 'チップ側'
         for key, label in (('radius_mm', '半径'), ('wall_mm', '接合部の厚さ')):
             value = values.get(key) if isinstance(values, dict) else None
             if type(value) not in (int, float) or not 0.001 <= value <= 30000:
-                side_label = 'ハブ側' if side == 'hub' else 'チップ側'
                 raise ValueError(f'{side_label}の{label}は0.001～30000 mmで指定してください。')
+        shape = values.get('shape', 'circle')
+        if shape not in ('circle', 'ellipse'):
+            raise ValueError(f'{side_label}のフィレット形状は円弧または楕円を指定してください。')
+        if shape == 'ellipse':
+            ratio = values.get('radial_ratio')
+            if type(ratio) not in (int, float) or not .25 <= ratio <= 4 or ratio == 1:
+                raise ValueError(f'{side_label}の楕円の半径方向比は0.25以上1未満、または1より大きく4以下で指定してください。')
     return {side: raw[side] for side in ('hub', 'tip') if side in raw}
 
 
@@ -106,12 +113,16 @@ def blade_payload(design, stage_index, row_index, fillets=None):
             side: {
                 'radius_mm': values['radius_mm'],
                 'wall_mm': values['wall_mm'],
+                'radial_ratio': values['radial_ratio'] if values.get('shape') == 'ellipse' else 1.,
                 'wall_profile': wall_profile(design, side, payload['points_mm'][0 if side == 'hub' else -1],
                                              values['radius_mm'], values['wall_mm']),
                 'overlap_span': min(values['wall_mm'] * .4, 1.) / height,
             }
             for side, values in options.items()
         }
+        if any(values['radial_ratio'] != 1 for values in payload['fillets'].values()):
+            middle = payload['spans'].index(.5)
+            payload['fillet_radial_yz'] = payload['points_mm'][middle][0][0][1:]
     return payload
 
 

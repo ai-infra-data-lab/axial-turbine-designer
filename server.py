@@ -164,6 +164,8 @@ def make_server(port=8782, data_path=None):
                     finally:
                         cad_lock.release()
                     suffix = '-fillet' if fillets else ''
+                    if any(settings.get('shape') == 'ellipse' for settings in fillets.values()):
+                        suffix = '-elliptic-fillet'
                     return self.send(step, content_type='model/step', filename=f'axial-stage-{si+1:02d}-{kind}{suffix}.step')
                 raise LookupError('APIがありません。')
             except Conflict as e:

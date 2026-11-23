@@ -37,10 +37,19 @@
 <h3>STEP出力</h3>
 <p class="hint" id="stepFilletHelp">半径を入力した側で、翼1枚と接合部を結合し、フィレットを作成します。空欄の側は省略します。</p>
 <div class="fields" id="stepFilletFields" aria-describedby="stepFilletHelp">
-<label>ハブ側フィレット半径 [mm]<input id="stepHubRadius" type="number" min="0.001" max="30000" step="any"></label>
-<label>ハブ側接合部の厚さ [mm]<input id="stepHubWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
-<label id="stepTipRadiusField" hidden>チップ側フィレット半径 [mm]<input id="stepTipRadius" type="number" min="0.001" max="30000" step="any"></label>
-<label id="stepTipWallField" hidden>チップ側接合部の厚さ [mm]<input id="stepTipWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
+<fieldset><legend>ハブ側</legend>
+<label>フィレット形状<select id="stepHubShape"><option value="circle">円弧</option><option value="ellipse">楕円</option></select></label>
+<label><span id="stepHubRadiusLabel">半径 [mm]</span><input id="stepHubRadius" type="number" min="0.001" max="30000" step="any"></label>
+<label id="stepHubRatioField" hidden>半径方向比<input id="stepHubRatio" type="number" min="0.25" max="4" step="any" value="1.25" aria-describedby="stepEllipseHelp"></label>
+<label>接合部の厚さ [mm]<input id="stepHubWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
+</fieldset>
+<fieldset id="stepTipFields" hidden><legend>チップ側</legend>
+<label>フィレット形状<select id="stepTipShape"><option value="circle">円弧</option><option value="ellipse">楕円</option></select></label>
+<label><span id="stepTipRadiusLabel">半径 [mm]</span><input id="stepTipRadius" type="number" min="0.001" max="30000" step="any"></label>
+<label id="stepTipRatioField" hidden>半径方向比<input id="stepTipRatio" type="number" min="0.25" max="4" step="any" value="1.25" aria-describedby="stepEllipseHelp"></label>
+<label>接合部の厚さ [mm]<input id="stepTipWall" type="number" min="0.001" max="30000" step="any" value="3"></label>
+</fieldset>
+<p class="hint" id="stepEllipseHelp" hidden>基準半径に対し、比が1より大きいと翼中央の半径方向に長く、1より小さいと短くなります。</p>
 </div>
 <div class="actions"><button id="step">選択翼列のSTEP出力</button></div>
 </section>

@@ -52,9 +52,11 @@ Windowsで `start.bat` をダブルクリックしてください。既定のブ
 
 - 動翼ではハブ側を設定できます。静翼ではハブ側とチップ側を独立に設定でき、両側を同じSTEPに含められます。
 - 作成する側のフィレット半径と接合部の径方向厚さをmmで入力します。接合部の厚さの初期値は3 mmです。入力値は開いている画面で翼列ごとに保持します。
+- 「フィレット形状」で円弧または楕円を選べます。楕円では基準半径 `R` [mm] と半径方向比 `q` を入力します。翼の中央スパンの前縁を通る半径方向に伸縮し、円弧断面がその方向を含む位置で半軸は `R` と `q × R` になります。接合線に沿って断面の向きが変わるため、実際の半軸長も部位によって変わります。比1より大きいと半径方向に長く、1より小さいと短くなります。
 - ハブ側には流路壁から径方向内側へ、チップ側にはケーシング壁から外側へ、翼の軸方向範囲を覆う短い回転リングを作ります。有効な子午面を反映済みの場合はその壁曲線を使用します。
-- 翼とリングを一つの実体に結合し、接合線に指定半径のCADフィレットを作成します。ファイル名は `axial-stage-01-stator-fillet.step` のようになります。半径が成立しない場合や形状検査に失敗した場合はエラーを返します。
+- 翼とリングを一つの実体に結合し、接合線にCADフィレットを作成します。円弧のSTEP名には `-fillet`、楕円を含む場合は `-elliptic-fillet` が付きます。指定寸法が成立しない場合や形状検査に失敗した場合はエラーを返します。
 - 後縁角が鋭いと、フィレット面が交差して出力できない場合があります。「LE・TE形状設定」で全スパン断面のTEを円弧に設定した静翼を、ハブ側・チップ側の出力検証に使用しています。
+- 基準円筒の標準静翼での楕円出力例は、ハブ側の基準半径0.50 mm、チップ側0.25 mm、両側の半径方向比1.25、接合部の厚さ3 mmです。
 
 ### 座標と検証
 
@@ -71,7 +73,7 @@ py -3.12 -m venv .venv-cad
 
 Python Launcherを使わない場合は、1行目の `py -3.12` をPython 3.12実行ファイルに置き換えてください。別のCAD環境は環境変数 `AXIAL_TURBINE_CAD_PYTHON` でPython実行ファイルの絶対パスを指定し、同じ環境からアプリを起動します。
 
-CADカーネルはOpen CASCADE Technologyです。 [Bスプライン面](https://occt3d.com/dev/doc/refman/html/class_geom___b_spline_surface.html) · [フィレット](https://occt3d.com/dev/doc/refman/html/class_b_rep_fillet_a_p_i___make_fillet.html) · [STEP再読込](https://occt3d.com/dev/doc/refman/html/class_s_t_e_p_control___reader.html)
+CADカーネルはOpen CASCADE Technologyです。 [Bスプライン面](https://occt3d.com/dev/doc/refman/html/class_geom___b_spline_surface.html) · [フィレット](https://occt3d.com/dev/doc/refman/html/class_b_rep_fillet_a_p_i___make_fillet.html) · [楕円化に使うアフィン変換](https://occt3d.com/dev/doc/refman/html/class_b_rep_builder_a_p_i___g_transform.html) · [STEP再読込](https://occt3d.com/dev/doc/refman/html/class_s_t_e_p_control___reader.html)
 
 ## LE・TEの専用形状
 

@@ -59,24 +59,33 @@ $('import').onchange=e=>task(async()=>{const file=e.target.files[0];e.target.val
 $('managerFile').onchange=e=>task(async()=>{manager=null;$('component').replaceChildren(new Option('タービン部品を選択',''));const f=e.target.files[0];e.target.value='';if(!f)return;if(f.size>8*1024*1024)throw Error('8 MB以内のJSONを指定してください。');const b=JSON.parse(await f.text());if(b.format!=='gas-turbine-manager'||b.bundle_version!==1||!b.project?.components)throw Error('設計情報管理の交換JSONを指定してください。');manager=b;b.project.components.filter(c=>c.kind==='turbine').forEach(c=>$('component').add(new Option(c.name,c.id)));message('関連付けるタービン部品を選択してください。数値は自動転記しません。');});
 $('link').onclick=()=>task(async()=>{if(!manager||!$('component').value)throw Error('管理アプリのJSONとタービン部品を選択してください。');const r=await api('/api/link',{bundle:manager,component_id:$('component').value});design.link=r.link;changed();renderLink();message('入力元のスナップショットと版を紐付けました。保存で確定します。');});$('unlink').onclick=()=>{design.link=null;changed();renderLink();};
 $('obj').onclick=()=>task(async()=>{const r=await api('/api/obj',payload());download('axial-blade.obj',r.text,'text/plain');message('選択翼列の単翼形状をOBJ出力しました（単位 m、端面なし）。');});
-const stepFilletInputs=['stepHubRadius','stepHubWall','stepTipRadius','stepTipWall'];
+const stepFilletDefaults={Shape:'circle',Radius:'',Ratio:'1.25',Wall:'3'};
+const stepFilletInputs=['Hub','Tip'].flatMap(side=>Object.entries(stepFilletDefaults)
+    .map(([key,value])=>['step'+side+key,value]));
 const stepFilletsByRow=new Map();
 let stepFilletRevision=0;
-for(const id of stepFilletInputs){
+for(const [id] of stepFilletInputs){
     $(id).oninput=()=>{
         const rowId=active().row.id;
         const values=stepFilletsByRow.get(rowId)||{};
         values[id]=$(id).value;
         stepFilletsByRow.set(rowId,values);
         stepFilletRevision++;
+        if(id.endsWith('Shape'))renderStepFillets();
     };
 }
 function renderStepFillets(){
     const row=active().row;
     const values=stepFilletsByRow.get(row.id)||{};
-    for(const id of stepFilletInputs)$(id).value=values[id]??(id.endsWith('Wall')?'3':'');
-    $('stepTipRadiusField').hidden=row.kind==='rotor';
-    $('stepTipWallField').hidden=row.kind==='rotor';
+    for(const [id,defaultValue] of stepFilletInputs)$(id).value=values[id]??defaultValue;
+    const rotor=row.kind==='rotor';
+    $('stepTipFields').hidden=rotor;
+    for(const side of ['Hub','Tip']){
+        const ellipse=$('step'+side+'Shape').value==='ellipse';
+        $('step'+side+'RatioField').hidden=!ellipse;
+        $('step'+side+'RadiusLabel').textContent=ellipse?'基準半径 [mm]':'半径 [mm]';
+    }
+    $('stepEllipseHelp').hidden=$('stepHubRatioField').hidden&&(rotor||$('stepTipRatioField').hidden);
 }
 function selectedStepFillets(kind){
     const sides=kind==='rotor'?[['hub','Hub']]:[['hub','Hub'],['tip','Tip']];
@@ -89,6 +98,13 @@ function selectedStepFillets(kind){
             throw Error('フィレット半径と接合部の厚さを0.001～30000 mmで指定してください。');
         }
         fillets[side]={radius_mm:radius.valueAsNumber,wall_mm:wall.valueAsNumber};
+        if($('step'+key+'Shape').value==='ellipse'){
+            const ratio=$('step'+key+'Ratio');
+            if(!ratio.reportValidity()||ratio.value===''||ratio.valueAsNumber===1)
+                throw Error('楕円の半径方向比は0.25以上1未満、または1より大きく4以下で指定してください。');
+            fillets[side].shape='ellipse';
+            fillets[side].radial_ratio=ratio.valueAsNumber;
+        }
     }
     return fillets;
 }
@@ -110,7 +126,11 @@ $('step').onclick=()=>task(async()=>{
     const name=response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
     if(!name)throw Error('STEPのファイル名を取得できませんでした。');
     download(name,step,'model/step');
-    const sides=Object.keys(fillets).map(side=>side==='hub'?'ハブ側':'チップ側');
+    const elliptical=Object.values(fillets).some(settings=>settings.shape==='ellipse');
+    const sides=Object.entries(fillets).map(([side,settings])=>{
+        const label=side==='hub'?'ハブ側':'チップ側';
+        return elliptical?label+(settings.shape==='ellipse'?' 楕円':' 円弧'):label;
+    });
     const detail=sides.length?`（${sides.join('・')}フィレット付き）`:'';
     message(`第${si+1}段 ${kind}のSTEP${detail}を出力しました。単位mm、再読込検査済みです。`);
 });

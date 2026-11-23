@@ -11,3 +11,6 @@
 
 .commonExchange{margin:12px 30px}.commonExchange output{display:block;overflow-wrap:anywhere;font-size:12px}
 #stepFilletFields [hidden]{display:none}
+#stepFilletFields fieldset{min-width:0;margin:0;padding:8px 12px 4px;border:1px solid #dce5ec;border-radius:5px}
+#stepFilletFields select{display:block;width:100%;margin-top:4px}
+#stepEllipseHelp{grid-column:1/-1}

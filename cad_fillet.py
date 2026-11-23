@@ -1,11 +1,13 @@
 """Build the short endwall rings and blend their junctions with the blade."""
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
-from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
+from OCP.BRepBuilderAPI import (
+    BRepBuilderAPI_GTransform, BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire,
+)
 from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeRevol
 from OCP.collections import Array1_gp_Pnt, List_TopoDS_Shape
 from OCP.Geom import Geom_BezierCurve
-from OCP.gp import gp_Ax1, gp_Dir, gp_Pnt
+from OCP.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_GTrsf, gp_Pnt
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
@@ -75,7 +77,68 @@ def junction_edges(fuse, ring_faces, blade):
     return roots
 
 
-def blend_junctions(blade, fillets):
+def build_blends(shape, groups):
+    builder = BRepFilletAPI_MakeFillet(shape)
+    for label, radius, _, roots in groups:
+        for edge in roots:
+            builder.Add(radius, edge)
+        if not all(builder.Contour(edge) for edge in roots):
+            raise ValueError(f'{label}のフィレットを作る境界を特定できませんでした。')
+    builder.Build()
+    if not builder.IsDone() or not builder.NbSurfaces():
+        raise ValueError('指定寸法でフィレットが成立しませんでした。')
+    faces = list(subshapes(builder.Shape(), TopAbs_FACE))
+    for label, _, _, roots in groups:
+        if not any(generated.IsSame(face) for edge in roots for generated in builder.Generated(edge) for face in faces):
+            raise ValueError(f'{label}に生成されたフィレット面を確認できませんでした。')
+    return builder
+
+
+def radial_affinity(radial_yz, scale):
+    affinity = gp_GTrsf()
+    affinity.SetAffinity(gp_Ax2(gp_Pnt(), gp_Dir(0, *radial_yz)), scale)
+    return affinity
+
+
+def map_roots(groups, transform):
+    return [(label, radius, ratio, [TopoDS.Edge(transform.ModifiedShape(edge)) for edge in roots])
+            for label, radius, ratio, roots in groups]
+
+
+def blend_in_frames(shape, groups, radial_yz):
+    # Each group is round in its own normalized frame. Move directly between
+    # those frames and restore the original supports at the end.
+    active_ratio = 1.
+    for ratio in sorted({group[2] for group in groups}, key=lambda ratio: (ratio != 1, ratio)):
+        if ratio != active_ratio:
+            frame = BRepBuilderAPI_GTransform(shape, radial_affinity(radial_yz, active_ratio / ratio), True)
+            shape, groups = frame.Shape(), map_roots(groups, frame)
+            active_ratio = ratio
+        current = [group for group in groups if group[2] == ratio]
+        builder = build_blends(shape, current)
+        shape = builder.Shape()
+        pending = []
+        result_edges = list(subshapes(shape, TopAbs_EDGE))
+        for label, radius, next_ratio, roots in groups:
+            if next_ratio == ratio:
+                continue
+            updated = []
+            for edge in roots:
+                candidates = [edge, *builder.Modified(edge)]
+                matches = [item for item in result_edges if any(item.IsSame(e) for e in candidates)]
+                if not matches:
+                    raise ValueError(f'{label}の接合線をフィレット処理後に取得できませんでした。')
+                for match in matches:
+                    if not any(match.IsSame(e) for e in updated):
+                        updated.append(TopoDS.Edge(match))
+            pending.append((label, radius, next_ratio, updated))
+        groups = pending
+    if active_ratio != 1:
+        shape = BRepBuilderAPI_GTransform(shape, radial_affinity(radial_yz, active_ratio), True).Shape()
+    return shape
+
+
+def blend_junctions(blade, fillets, radial_yz=None):
     walls = []
     tools = List_TopoDS_Shape()
     arguments = List_TopoDS_Shape()
@@ -85,38 +148,27 @@ def blend_junctions(blade, fillets):
         for side, settings in fillets.items():
             label = 'ハブ側' if side == 'hub' else 'チップ側'
             radius = settings['radius_mm']
-            labels.append(f'{label} R{radius:g} mm')
+            ratio = settings.get('radial_ratio', 1.)
+            suffix = f' 楕円 比{ratio:g}' if ratio != 1 else ''
+            labels.append(f'{label} R{radius:g} mm{suffix}')
             offset = settings['wall_mm'] * (-1 if side == 'hub' else 1)
             ring, flow_faces, other_faces = endwall(settings['wall_profile'], offset)
             tools.Append(ring)
-            walls.append((label, radius, flow_faces, other_faces))
+            walls.append((label, radius, ratio, flow_faces, other_faces))
         fuse = BRepAlgoAPI_Fuse()
         fuse.SetArguments(arguments)
         fuse.SetTools(tools)
         fuse.Build()
         if not fuse.IsDone() or len(list(subshapes(fuse.Shape(), TopAbs_SOLID))) != 1:
             raise ValueError('翼と接合部を一つのソリッドに結合できませんでした。')
-        builder = BRepFilletAPI_MakeFillet(fuse.Shape())
         groups = []
-        for label, radius, flow_faces, other_faces in walls:
+        for label, radius, ratio, flow_faces, other_faces in walls:
             if junction_edges(fuse, other_faces, blade):
                 raise ValueError(f'{label}の翼が接合部の裏面または端面まで貫通しています。')
             roots = junction_edges(fuse, flow_faces, blade)
             if not roots:
                 raise ValueError(f'{label}の翼と流路壁の境界を特定できませんでした。')
-            for edge in roots:
-                builder.Add(radius, edge)
-            if not all(builder.Contour(edge) for edge in roots):
-                raise ValueError(f'{label}のフィレットを作る境界を特定できませんでした。')
-            groups.append((label, roots))
-        builder.Build()
-        if not builder.IsDone() or not builder.NbSurfaces():
-            raise ValueError('指定半径でフィレットが成立しませんでした。')
-        result = builder.Shape()
-        faces = list(subshapes(result, TopAbs_FACE))
-        for label, roots in groups:
-            if not any(generated.IsSame(face) for edge in roots for generated in builder.Generated(edge) for face in faces):
-                raise ValueError(f'{label}に生成されたフィレット面を確認できませんでした。')
-        return result
+            groups.append((label, radius, ratio, roots))
+        return blend_in_frames(fuse.Shape(), groups, radial_yz)
     except Exception as exc:
         raise ValueError(f'{"・".join(labels)}の接合部を作成できませんでした。{exc}') from None

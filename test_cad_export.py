@@ -18,6 +18,20 @@ from server import make_server
 
 
 class CadTests(unittest.TestCase):
+    def test_elliptic_fillet_settings_and_reference_direction(self):
+        design = new_design()
+        ellipse = {'shape': 'ellipse', 'radial_ratio': 1.25, 'radius_mm': .25, 'wall_mm': 3}
+        settings = {'hub': ellipse, 'tip': {'radius_mm': .5, 'wall_mm': 3}}
+        payload = blade_payload(design, 0, 0, settings)
+        self.assertEqual(payload['fillets']['hub']['radial_ratio'], 1.25)
+        self.assertEqual(payload['fillets']['tip']['radial_ratio'], 1.)
+        self.assertEqual(payload['fillet_radial_yz'], payload['points_mm'][payload['spans'].index(.5)][0][0][1:])
+        for ratio in (None, True, 0, 1, 4.5, float('nan')):
+            with self.subTest(ratio=ratio), self.assertRaisesRegex(ValueError, '半径方向比'):
+                fillet_options({'hub': {**ellipse, 'radial_ratio': ratio}}, 'rotor')
+        with self.assertRaisesRegex(ValueError, '円弧または楕円'):
+            fillet_options({'hub': {**ellipse, 'shape': 'parabola'}}, 'rotor')
+
     def test_fillet_options_restrict_the_rotor_to_hub_and_reject_invalid_sizes(self):
         hub = {'radius_mm': .5, 'wall_mm': 3}
         tip = {'radius_mm': .25, 'wall_mm': 2}
@@ -96,7 +110,15 @@ class CadTests(unittest.TestCase):
                     with self.assertRaises(HTTPError) as failed:
                         urlopen(rotor, timeout=5)
                     self.assertEqual(failed.exception.code, 400)
-                    self.assertEqual(mocked.call_count, 2)
+                    ellipse = {'hub': {'shape':'ellipse', 'radial_ratio':1.25, 'radius_mm':.25, 'wall_mm':3}}
+                    elliptic_rotor = Request(url+'/api/step', json.dumps({
+                        'design':bootstrap['design'], 'stage_index':0, 'row_index':1, 'fillets':ellipse,
+                    }).encode(), headers)
+                    with urlopen(elliptic_rotor, timeout=5) as response:
+                        self.assertIn('axial-stage-01-rotor-elliptic-fillet.step',
+                                      response.headers['Content-Disposition'])
+                    self.assertEqual(mocked.call_args.kwargs['fillets'], ellipse)
+                    self.assertEqual(mocked.call_count, 3)
                 with patch('server.export_step', side_effect=CadUnavailable('CAD環境エラー')):
                     with self.assertRaises(HTTPError) as failed:
                         urlopen(post, timeout=5)
@@ -136,6 +158,31 @@ class NativeCadTests(unittest.TestCase):
                 self.assert_step_solid(export_step(design, 0, row, {side: {'radius_mm': .25, 'wall_mm': 3}}))
 
     def test_stator_fillet_on_both_applied_endwalls_round_trip(self):
+        self.assert_step_solid(export_step(self.rounded_stator(), 0, 0, {
+            'hub': {'radius_mm': .5, 'wall_mm': 3},
+            'tip': {'radius_mm': .25, 'wall_mm': 3},
+        }))
+
+    def test_elliptic_round_trip(self):
+        from cad_fillet import radial_affinity
+        # An oblique reference vector verifies that the extension follows the
+        # blade radius rather than one of the global coordinate axes.
+        restore = radial_affinity((3., 4.), 1.25)
+        for direction, stretch in (((0., .6, .8), 1.25), ((0., -.8, .6), 1.), ((1., 0., 0.), 1.)):
+            transformed = [sum(restore.Value(i, j) * value for j, value in enumerate(direction, 1))
+                           for i in range(1, 4)]
+            for value, expected in zip(transformed, direction, strict=True):
+                self.assertAlmostEqual(value, stretch * expected)
+
+        ellipse = {'shape': 'ellipse', 'radial_ratio': 1.25, 'wall_mm': 3}
+        self.assert_step_solid(export_step(new_design(), 0, 1, {'hub': {**ellipse, 'radius_mm': .25}}))
+        self.assert_step_solid(export_step(self.rounded_stator(), 0, 0, {
+            'hub': {**ellipse, 'radius_mm': .5},
+            'tip': {**ellipse, 'radius_mm': .25, 'radial_ratio': 1.1},
+        }))
+
+    @staticmethod
+    def rounded_stator():
         design = new_design()
         for section in design['stages'][0]['rows'][0]['sections']:
             section['edges'] = dict(edge_defaults(section), enabled=True)
@@ -144,7 +191,4 @@ class NativeCadTests(unittest.TestCase):
         for side in ('hub', 'casing'):
             (x0, r), (x1, _) = walls[side]
             walls[side] = [[x0, r], [(x0 + x1) / 2, r + .003], [x1, r + .001]]
-        self.assert_step_solid(export_step(design, 0, 0, {
-            'hub': {'radius_mm': .5, 'wall_mm': 3},
-            'tip': {'radius_mm': .25, 'wall_mm': 3},
-        }))
+        return design

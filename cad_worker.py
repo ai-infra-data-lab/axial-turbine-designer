@@ -162,9 +162,10 @@ def write_verified_step(payload, path):
                                 smooth_tail=payload.get('smooth_tail', False))
     edge_tolerance = TOLERANCE_MM * 2
     if fillets:
-        solid = blend_junctions(solid, fillets)
-        smallest_radius = min(settings['radius_mm'] for settings in fillets.values())
-        edge_tolerance = min(.001, .02 * smallest_radius)
+        solid = blend_junctions(solid, fillets, payload.get('fillet_radial_yz'))
+        smallest_semi_axis = min(settings['radius_mm'] * min(1., settings.get('radial_ratio', 1.))
+                                 for settings in fillets.values())
+        edge_tolerance = min(.001, .02 * smallest_semi_axis)
     volume, bounds = inspect_solid(solid, edge_tolerance)
     writer = STEPControl_Writer()
     Interface_Static.SetCVal_s('write.step.unit', 'MM')
